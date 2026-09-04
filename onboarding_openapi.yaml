@@ -1,0 +1,86 @@
+  '/onboarding/progress':
+    get:
+      tags:
+        - 'Onboarding'
+      summary: 'Obter Progresso do Onboarding'
+      description: 'Retorna o progresso atual do utilizador autenticado.'
+      security:
+        - sanctum: []
+      responses:
+        200:
+          description: 'Progresso retornado com sucesso.'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current_step: { type: integer, example: 1 }
+                  step_index: { type: integer, example: 0 }
+                  completed: { type: boolean, example: false }
+                  skipped: { type: boolean, example: false }
+        401:
+          description: 'Não autenticado.'
+    put:
+      tags:
+        - 'Onboarding'
+      summary: 'Atualizar Progresso do Onboarding'
+      description: 'Atualiza o passo atual ou estado de conclusão.'
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                current_step: { type: integer, example: 2 }
+                step_index: { type: integer, example: 1 }
+                completed: { type: boolean, example: false }
+                skipped: { type: boolean, example: false }
+      responses:
+        200:
+          description: 'Progresso atualizado.'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current_step: { type: integer }
+                  step_index: { type: integer }
+                  completed: { type: boolean }
+                  skipped: { type: boolean }
+        401:
+          description: 'Não autenticado.'
+        422:
+          description: 'Erro de validação.'
+  '/onboarding/analytics':
+    post:
+      tags:
+        - 'Onboarding'
+      summary: 'Registar Analytics do Onboarding'
+      description: 'Guarda eventos analíticos (ex: tempo gasto num passo).'
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event: { type: string, example: 'step_completed' }
+                step: { type: integer, example: 1 }
+                duration: { type: integer, example: 45, description: 'Duração em segundos' }
+                metadata: { type: object, nullable: true }
+      responses:
+        200:
+          description: 'Evento registado.'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+        401:
+          description: 'Não autenticado.'

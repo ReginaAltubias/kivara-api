@@ -1,0 +1,303 @@
+# Fragmento para mesclar no openapi.yaml existente.
+# As referencias apontam para schemas que ja existem na documentacao principal.
+paths:
+  /finance/allowances/{id}:
+    get:
+      tags:
+        - Motor Financeiro
+      summary: "Ver Configuracao de Mesada"
+      description: "Retorna uma configuracao de mesada especifica."
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: "Configuracao de mesada."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowanceResponse'
+        '404':
+          description: "Configuracao nao encontrada."
+    put:
+      tags:
+        - Motor Financeiro
+      summary: "Actualizar Configuracao de Mesada"
+      description: "Actualiza uma configuracao de mesada existente."
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllowanceRequest'
+      responses:
+        '200':
+          description: "Mesada actualizada."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowanceResponse'
+        '404':
+          description: "Configuracao nao encontrada."
+        '422':
+          description: "Validação falhou."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /finance/vaults/{id}:
+    get:
+      tags:
+        - Motor Financeiro
+      summary: "Ver Cofre de Poupanca"
+      description: "Retorna um cofre especifico com o progresso da meta."
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: "Detalhe do cofre."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultResponse'
+        '404':
+          description: "Cofre nao encontrado."
+    put:
+      tags:
+        - Motor Financeiro
+      summary: "Actualizar Cofre de Poupanca"
+      description: "Actualiza os dados de um cofre existente."
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVaultRequest'
+      responses:
+        '200':
+          description: "Cofre actualizado."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultResponse'
+        '404':
+          description: "Cofre nao encontrado."
+        '422':
+          description: "Validação falhou."
+    delete:
+      tags:
+        - Motor Financeiro
+      summary: "Eliminar Cofre de Poupanca"
+      description: "Desactiva ou elimina um cofre de poupanca."
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: "Cofre eliminado com sucesso."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          description: "Cofre nao encontrado."
+
+  /gamification/streaks/me:
+    get:
+      tags:
+        - Gamificacao B2C
+      summary: "Consultar Streak Actual"
+      description: "Retorna o streak e a data da ultima actividade da crianca autenticada."
+      responses:
+        '200':
+          description: "Streak actual."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreakResponse'
+
+  /gamification/badges/{id}:
+    get:
+      tags:
+        - Gamificacao B2C
+      summary: "Ver Badge"
+      description: "Retorna os detalhes de uma badge conquistada."
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: "Detalhe da badge."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadgeDetailResponse'
+        '404':
+          description: "Badge nao encontrada."
+
+  /parents/level-up-requests/{id}:
+    get:
+      tags:
+        - Portao Parental
+      summary: "Ver Pedido de Evolucao"
+      description: "Retorna o detalhe de um pedido de evolucao pertencente ao encarregado autenticado."
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: "Detalhe do pedido."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LevelUpRequestDetailResponse'
+        '403':
+          description: "Operacao nao autorizada."
+        '404':
+          description: "Pedido nao encontrado."
+
+  /b2b/classrooms/{id}/students/{studentId}:
+    delete:
+      tags:
+        - B2B - Escolas
+      summary: "Remover Aluno de Turma"
+      description: "Remove um perfil de crianca da turma."
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: studentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: "Aluno removido."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          description: "Apenas Teacher da turma."
+        '404':
+          description: "Turma ou aluno nao encontrado."
+
+  /users/children/{id}:
+    delete:
+      tags:
+        - Perfis & Utilizadores
+      summary: "Eliminar Perfil de Crianca"
+      description: "Remove o perfil de uma crianca dependente pertencente ao pai autenticado."
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: "Perfil eliminado."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          description: "Operacao nao autorizada."
+        '404':
+          description: "Crianca nao encontrada."
+
+components:
+  parameters:
+    ResourceId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: "Identificador UUID do recurso."
+  schemas:
+    BadgeDetailResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+            description:
+              type: string
+              nullable: true
+            icon_url:
+              type: string
+              format: uri
+              nullable: true
+            tier:
+              type: string
+              enum: [bronze, silver, gold, platinum]
+            required_xp:
+              type: integer
+              nullable: true
+            trigger_type:
+              type: string
+            trigger_data:
+              type: object
+              nullable: true
+            unlocked_at:
+              type: string
+              format: date-time
+              nullable: true
+    LevelUpRequestDetailResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            child_profile_id:
+              type: string
+              format: uuid
+            parent_id:
+              type: string
+              format: uuid
+            from_phase:
+              type: integer
+            to_phase:
+              type: integer
+            current_xp:
+              type: integer
+            required_xp:
+              type: integer
+            reason:
+              type: string
+            status:
+              type: string
+              enum: [pending, approved, rejected]
+            approval_notes:
+              type: string
+              nullable: true
+            rejection_reason:
+              type: string
+              nullable: true
+            reviewed_at:
+              type: string
+              format: date-time
+              nullable: true
+            created_at:
+              type: string
+              format: date-time

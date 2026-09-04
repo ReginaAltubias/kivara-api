@@ -1,0 +1,244 @@
+# KIVARA — Blueprint Definitivo de Arquitetura e Contrato de API
+## Metodologia Contract-First / Frontend-First (Laravel 11 & React Ecosystem)
+### Escopo: Gestão Institucional, Administrativa, Pedagógica, Familiar e Parceiros (Admin, Escola, Professor, Encarregado e Parceiro)
+
+---
+
+## 1. Visão Geral e Diretrizes Arquiteturais
+
+O ecossistema **KIVARA** é uma plataforma EdTech B2B2C de literacia financeira e gestão educacional, escolar, familiar e corporativa. Este documento consolida a especificação técnica e arquitetural definitiva da **KIVARA API**, estabelecendo os contratos de integração, esquemas de dados, serviços nucleares e a matriz de trade-offs técnicos.
+
+### 1.1. Regra de Ouro Arquitetural
+> **Frontend como Fonte da Verdade (Source of Truth):** Toda a API Laravel adere estritamente às tipagens TypeScript, hooks React Query, formulários e fluxos consolidados na interface do utilizador. Nenhuma alteração no backend pode impor refatorações não planejadas ao frontend.
+
+---
+
+## 2. Trade-offs e Decisões Arquiteturais de Engenharia
+
+1. **Segurança Multi-Tenant Blindada (Isolamento B2B):**
+   - *Trade-off:* Flexibilidade vs. Segurança Blindada.
+   - *Decisão:* Nunca confiar no `tenant_id` enviado via *body* ou *query string* pelo frontend. O Laravel extrai obrigatoriamente o `tenant_id` a partir do *token* Sanctum do utilizador autenticado (`$request->user()->tenant_id`) e aplica-o no escopo global das consultas.
+
+2. **Motor Econômico e Integridade de Dados Bancária:**
+   - *Trade-off:* Performance Simples vs. Consistência Transacional.
+   - *Decisão:* As moedas virtuais (KVC) são tratadas com o rigor de uma aplicação bancária. Avaliações de professores, carregamentos de parceiros e recompensas de tarefas usam estritamente `DB::transaction()` e bloqueios de linha (`lockForUpdate()`) em [`FinancialLedgerService`](file:///c:/Users/regin/kivara-api/app/Services/FinancialLedgerService.php) para evitar dupla alocação de saldo (*race conditions*).
+
+3. **Processamento Assíncrono (Alta Performance da API):**
+   - *Trade-off:* Resposta Imediata vs. Escalabilidade.
+   - *Decisão:* O envio de emails com credenciais e código OTP ([`AccountActivationMail`](file:///c:/Users/regin/kivara-api/app/Mail/AccountActivationMail.php)) e a avaliação de inatividade e abandono de alunos nunca rodam no ciclo síncrono de request/response. São processados em Queues (`ShouldQueue`) e comandos Cron agendados (`06:00 AM`).
+
+4. **Privacidade e Relatórios de Parceiros ESG (Garantia Zero PII):**
+   - *Trade-off:* Dados Granulares vs. Conformidade Legal (LGPD / APD Angola).
+   - *Decisão:* Os painéis de parceiros institucionais nunca acessam perfis individuais de estudantes. Os relatórios ([`PartnerReportController`](file:///c:/Users/regin/kivara-api/app/Http/Controllers/Api/Partner/PartnerReportController.php)) devolvem exclusivamente dados agregados e métricas anonimizadas através do [`PartnerImpactService`](file:///c:/Users/regin/kivara-api/app/Services/PartnerImpactService.php).
+
+5. **Turmas Híbridas (Arquitetura Relacional Flexível):**
+   - *Decisão:* A tabela pivô `classroom_user` é estruturada de forma híbrida: aceita `user_id` (adolescentes com conta própria) ou `child_profile_id` (crianças geridas na conta dos pais), suportando alunos independentes e supervisionados na mesma turma.
+
+6. **Onboarding Seguro e Ativação OTP:**
+   - *Decisão:* Em vez de *magic links* soltos, o sistema gera credenciais e um código OTP (6 dígitos com validade de 24h). O utilizador valida o OTP (`POST /auth/verify-activation`), recebe o token e o sistema força (`must_change_password: true`) a troca da palavra-passe no primeiro login (`POST /auth/change-password`).
+
+---
+
+## 3. Arquitetura de Alto Nível & Topologia
+
+```mermaid
+graph TD
+    subgraph Clients["Frontend Clients (React / TypeScript / Mobile)"]
+        AdminApp["Admin Dashboard (/admin/*)"]
+        SchoolApp["Escola & Coordenação (/school/*)"]
+        TeacherApp["Professor (/teacher/*)"]
+        ParentApp["Parent Gate (/parent/*)"]
+        PartnerApp["Portal de Parceiros (/partner/*)"]
+        StudentApp["KIVARA Kids & Teens (/gamification/*)"]
+    end
+
+    subgraph Gateway["API Gateway & Middleware Layer"]
+        RateLimiter["Rate Limiting & Throttling"]
+        SanctumAuth["Sanctum Token Guard"]
+        TenantExtractor["Tenant Token Extractor ($user->tenant_id)"]
+        RoleGuard["RoleAuthorizationMiddleware (Spatie RBAC)"]
+    end
+
+    subgraph CoreServices["Camada de Serviços Nucleares (app/Services)"]
+        LedgerSvc["FinancialLedgerService (Append-Only & Idempotency)"]
+        PedagogySvc["PedagogicalOrchestratorService (Loop 1 & Versioning)"]
+        ImpactSvc["PartnerImpactService (Zero PII ESG Metrics)"]
+        EscalationSvc["EscalationNotificationService (Cron 5d/10d/14d)"]
+        MediaSvc["MediaStorageService (Multipart S3 / Storage)"]
+    end
+
+    subgraph DataStorage["Camada de Persistência & Assincronia"]
+        PostgresDB[("PostgreSQL Database (UUIDs & JSONB)")]
+        RedisCache[("Redis (Queues, Cache & Sessions)")]
+        StorageDisk[("Object Storage (S3 / MinIO / Local)")]
+    end
+
+    Clients --> Gateway
+    Gateway --> CoreServices
+    CoreServices --> PostgresDB
+    CoreServices --> RedisCache
+    CoreServices --> StorageDisk
+```
+
+---
+
+## 4. Modelo de Dados & Relacionamentos (ERD Interconectado)
+
+```mermaid
+erDiagram
+    TENANTS ||--o{ USERS : contains
+    TENANTS ||--o{ CLASSROOMS : owns
+    TENANTS ||--o{ PARTNERS : hosts
+    
+    PARTNERS ||--o{ PARTNER_PROGRAMS : creates
+    PARTNERS ||--o{ WALLETS : funds
+    PARTNER_PROGRAMS ||--o{ PARTNER_CHALLENGES : sponsors
+    
+    USERS ||--o{ CHILD_PROFILES : parents_guardian
+    USERS ||--o{ WALLETS : owns
+    CHILD_PROFILES ||--o{ WALLETS : owns
+    
+    WALLETS ||--o{ LEDGER_ENTRIES : records_immutable
+    WALLETS ||--o{ RISK_FLAGS : monitors
+    
+    TRAILS ||--o{ LESSONS : contains
+    TRAILS ||--o{ TRAILS : parent_version
+    LESSONS ||--o{ MISSION_TEMPLATES : requires_loop1
+    
+    CLASSROOMS ||--o{ CLASSROOM_USER : enrolls_hybrid
+    CLASSROOMS ||--o{ CLASSROOM_LESSONS : assigns_with_due_date
+    LESSONS ||--o{ CLASSROOM_LESSONS : assigned_to
+    
+    CHILD_PROFILES ||--o{ TASKS : assigned_to
+    CHILD_PROFILES ||--o{ ALLOWANCE_CONFIGS : receives
+    
+    CHILD_PROFILES ||--o{ USER_PROGRESS : performs_as_child
+    USERS ||--o{ USER_PROGRESS : performs_as_teen
+    LESSONS ||--o{ USER_PROGRESS : tracked_by
+    MISSION_TEMPLATES ||--o{ USER_PROGRESS : evaluated_in
+    USER_PROGRESS ||--o{ LEDGER_ENTRIES : credits_reward_on_approval
+```
+
+### 4.1. Dicionário de Estrutura Relacional
+
+- **`tenants`**: `id` (uuid PK), `name`, `slug` (unique), `type` (school, partner, platform), `is_active`, `logo_url`, `settings` (json).
+- **`users`**: `id` (uuid PK), `tenant_id` (FK nullable), `name`, `email` (unique), `password`, `role`, `activation_code` (string nullable), `activation_expires_at` (timestamp nullable), `must_change_password` (boolean default false), `email_verified_at`.
+- **`profiles` / `child_profiles`**: `id` (uuid PK), `user_id` (FK nullable), `parent_id` (FK nullable), `tenant_id` (FK), `display_name`, `avatar`, `total_xp`.
+- **`households` & `household_members`**: `id` (uuid PK), `family_code` (unique), `relationship` (guardian_primary, child, teen).
+- **`tasks`**: `id` (uuid PK), `child_id` / `profile_id`, `creator_profile_id`, `title`, `reward_amount`, `status` (criada, notificada, em_execucao, a_validar, aprovada).
+- **`classrooms`**: `id` (uuid PK), `tenant_id` (FK), `name`, `grade_level`, `teacher_id` / `teacher_profile_id`, `invite_code`.
+- **`classroom_user` (Pivô Híbrido)**: `id` (uuid PK), `classroom_id` (FK), `user_id` (FK nullable para Teens), `child_profile_id` (FK nullable para Crianças), `role` (student, teacher).
+- **`classroom_lessons`**: `id` (uuid PK), `classroom_id` (FK), `lesson_id` (FK), `due_date`, `priority` (low, medium, high), `assigned_at`.
+- **`trails`, `lessons`, `mission_templates`**: Hierarquia pedagógica, `parent_trail_id` (versionamento imutável), `mission_template_id` (Loop 1 Obrigatório).
+- **`user_progress`**: `id` (uuid PK), `user_id` / `child_profile_id`, `learning_object_id` / `lesson_id`, `status` (pending_review, validada/aprovado, rejeitado), `submission_payload`, `teacher_feedback`, `score`.
+- **`partners`, `partner_programs`, `partner_challenges`**: `id` (uuid PK), `tenant_id` (FK), `budget_total`, `budget_available`, `allocated_budget`, `reward_pool`.
+- **`wallets` & `ledger_entries`**: `id` (uuid PK), `walletable_id`, `walletable_type`, `balance`, `currency` (KVC / Kz), `is_frozen`. `ledger_entries` append-only com `idempotency_key` e `entry_type`.
+
+---
+
+## 5. Lista de Endpoints da API REST (v1)
+
+### 5.1. Autenticação e Onboarding (`/api/v1/auth/*`)
+
+| Método | Endpoint | Ação & Regra de Negócio |
+|---|---|---|
+| `POST` | `/api/v1/auth/login` | Login com Email/Password (adultos) ou Username/PIN (crianças). Retorna token Sanctum e flag `must_change_password`. |
+| `POST` | `/api/v1/auth/verify-activation` | Valida OTP de 6 dígitos enviado por e-mail, ativa conta, verifica e-mail e gera token Sanctum com login automático. |
+| `POST` | `/api/v1/auth/resend-activation` | Reenvia novo código OTP de 6 dígitos com validade de 24 horas. |
+| `POST` | `/api/v1/auth/change-password` | Alteração obrigatória de palavra-passe no primeiro login (limpa `must_change_password`). |
+| `POST` | `/api/v1/auth/refresh` | Renovação do token de acesso Sanctum. |
+| `POST` | `/api/v1/auth/logout` | Revogação de sessão e destruição de tokens. |
+| `GET` | `/api/v1/auth/me` | Retorna o perfil e permissões do utilizador autenticado. |
+
+### 5.2. Administração Central (`/api/v1/admin/*`)
+
+| Método | Endpoint | Ação & Regra de Negócio |
+|---|---|---|
+| `GET` | `/api/v1/admin/tenants` | Listagem de escolas e parceiros cadastrados. |
+| `POST` | `/api/v1/admin/tenants` | Criação de novo tenant institucional. |
+| `PATCH` | `/api/v1/admin/tenants/{id}` | Atualização de configurações do tenant. |
+| `GET` | `/api/v1/admin/currencies` | Consulta de taxas de conversão (AOA ↔ KVC). |
+| `POST` | `/api/v1/admin/login-banners/upload` | Upload e gestão de banners institucionais de login. |
+| `GET` | `/api/v1/admin/audit-logs` | Consulta de logs de auditoria e trilhas de segurança. |
+
+### 5.3. Escola e Coordenação (`/api/v1/school/*`)
+
+| Método | Endpoint | Ação & Regra de Negócio |
+|---|---|---|
+| `GET` | `/api/v1/school/classrooms` | Listagem de turmas da instituição escolar. |
+| `POST` | `/api/v1/school/classrooms` | Criação de nova turma. |
+| `GET` | `/api/v1/school/students` | Listagem de alunos matriculados na escola. |
+| `POST` | `/api/v1/school/staff/invite` | Convite de professores com geração de OTP e envio assíncrono de credenciais. |
+| `GET` | `/api/v1/school/stats` | Métricas agregadas da escola (taxas de conclusão, engajamento e alunos em risco). |
+| `GET` | `/api/v1/school/rewards` | Catálogo de recompensas institucionais da escola. |
+| `POST` | `/api/v1/school/rewards` | Cadastro de nova recompensa escolar pelo coordenador. |
+| `POST` | `/api/v1/school/subscription/checkout` | Pagamento e liquidação de subscrição B2B via Multicaixa. |
+
+### 5.4. Professor (`/api/v1/teacher/*`)
+
+| Método | Endpoint | Ação & Regra de Negócio |
+|---|---|---|
+| `GET` | `/api/v1/teacher/classrooms/{id}/lessons` | Visualizar lições atribuídas à turma com prazos e prioridades. |
+| `POST` | `/api/v1/teacher/classrooms/{id}/lessons` | Atribuir lição com **validação obrigatória de Loop 1** (`mission_template_id`). |
+| `GET` | `/api/v1/teacher/classrooms/{id}/pending-evaluations` | Fila FIFO de atividades e missões aguardando correção. |
+| `POST` | `/api/v1/teacher/evaluations/{progress_id}` | Avaliação de missão: `status: aprovado` credita KVC e XP atomicamente na carteira do aluno. |
+
+### 5.5. Família / Encarregado (`/api/v1/parent/*`)
+
+| Método | Endpoint | Ação & Regra de Negócio |
+|---|---|---|
+| `GET` | `/api/v1/parent/children/{id}/summary` | Dashboard de progresso, lições concluídas e streaks do filho. |
+| `GET` | `/api/v1/parent/tasks` | Listagem de tarefas domésticas atribuídas aos filhos. |
+| `POST` | `/api/v1/parent/tasks` | Criação de nova tarefa doméstica com valor de recompensa. |
+| `POST` | `/api/v1/parent/tasks/{id}/approve` | Aprovação parental explícita e crédito imediato no ledger da criança. |
+| `POST` | `/api/v1/parent/allowances/{id}/send-now` | Envio manual e pontual de mesada com bônus configurável. |
+
+### 5.6. Parceiros Institucionais (`/api/v1/partner/*`)
+
+| Método | Endpoint | Ação & Regra de Negócio |
+|---|---|---|
+| `GET` | `/api/v1/partner/dashboard` | Resumo financeiro, orçamento disponível e visão geral ESG. |
+| `POST` | `/api/v1/partner/wallet/top-up` | Carregamento de conta com AOA via gateway/transferência. |
+| `GET` | `/api/v1/partner/programs` | Listagem de programas corporativos de patrocínio. |
+| `POST` | `/api/v1/partner/programs` | Criação de nova campanha de financiamento escolar. |
+| `POST` | `/api/v1/partner/challenges` | Lançamento de desafios patrocinados para escolas com cativação de saldo. |
+| `GET` | `/api/v1/partner/reports/metrics` | Relatório de impacto agregado e anonimizado (**Zero PII**). |
+
+### 5.7. Trilhas, Lições & Utilidades Globais
+
+| Método | Endpoint | Ação & Regra de Negócio |
+|---|---|---|
+| `GET` | `/api/v1/trails` | Listagem de trilhas educativas com paginação e filtros. |
+| `POST` | `/api/v1/trails` | Criação de trilha em estado draft. |
+| `POST` | `/api/v1/trails/{id}/publish` | Publicação de trilha e bloqueio para mutações diretas. |
+| `POST` | `/api/v1/trails/{id}/version` | Criação de nova versão imutável (`version + 1`) para edição independente. |
+| `POST` | `/api/v1/lessons/{id}/submit-review` | Submissão de lição para revisão pedagógica. |
+| `POST` | `/api/v1/lessons/{id}/approve` | Aprovação com validação de missão vinculada (Loop 1). |
+| `DELETE` | `/api/v1/lessons/progress/{studentId}/{lessonId}` | Reabertura de conteúdo (`204 No Content`). |
+| `POST` | `/api/v1/media` | Upload multipart para S3/Storage (vídeos, áudios, imagens, PDFs e JSON). |
+| `POST` | `/api/v1/profiles/avatar` | Upload de foto de perfil/avatar. |
+
+---
+
+## 6. Matriz de Trade-offs de Engenharia de Software
+
+| Domínio de Decisão | Alternativa Escolhida | Alternativa Rejeitada | Vantagens (Prós) | Desvantagens / Custos (Contras) | Estratégia de Mitigação |
+|---|---|---|---|---|---|
+| **1. Motor Financeiro & Saldos** | **Livro-Razão Append-Only (`LedgerEntry`) com cálculo atômico** | Atualização direta de coluna `balance` sem histórico auditável | Imutabilidade total, auditoria fiscal/legal completa, rastreabilidade contra fraudes e conformidade financeira. | Maior volume de escrita em banco e necessidade de locks atômicos. | Utilização de `lockForUpdate` dentro de `DB::transaction` e chaves de idempotência únicas por evento. |
+| **2. Arquitetura Multi-Tenancy** | **Multi-Tenancy por Token (`$user->tenant_id`)** | Schema-per-tenant ou confia em tenant do body | Menor complexidade operacional, migrações atômicas e redução drástica de custo de infraestrutura. | Risco de vazamento de dados entre escolas se o isolamento falhar. | Extração imutável do token Sanctum, políticas de autorização (`Policies`) e chaves estrangeiras indexadas. |
+| **3. Ativação de Utilizadores** | **OTP de 6 dígitos + Senha Temporária via E-mail** | *Magic Link* simples | Maior controle em dispositivos institucionais compartilhados (computadores de escolas) e compatibilidade mobile nativa. | Exige etapa extra de digitação de código de 6 dígitos pelo utilizador. | Botão de CTA com e-mail pré-preenchido e login automático imediatamente após validação do OTP. |
+| **4. Envio de E-mails Transacionais** | **Processamento Assíncrono com Filas (`ShouldQueue` / Redis)** | Envio síncrono no ciclo da requisição HTTP | Respostas HTTP instantâneas (<100ms) e resiliência contra lentidão/falhas de SMTP. | Dependência de workers de fila ativos (`php artisan queue:work`). | Configuração de supervisor/Docker healthcheck e logs centralizados de falhas. |
+| **5. Versionamento Pedagógico** | **Imutabilidade de Trilhas Publicadas + Clonagem (`POST /version`)** | Edição *in-place* de conteúdos ativos | Protege o histórico de turmas em andamento e evita inconsistências em relatórios pedagógicos passados. | Duplicação controlada de registros de lições no banco de dados. | Relação `parent_trail_id` para linhagem genealógica e soft-delete de versões obsoletas. |
+| **6. Relatórios de Parceiros** | **Agregações Analíticas Anônimas (Garantia Zero PII)** | Exportação de dados brutos com identificadores de alunos | Conformidade estrita com LGPD / APD Angola e proteção total da privacidade de menores de idade. | Impossibilidade de o parceiro auditar individualmente o nome de cada criança impactada. | Métricas agregadas detalhadas por turma/escola e geração de score de índice de impacto. |
+| **7. Concorrência em Avaliações** | **Bloqueio Pessimista (`lockForUpdate`)** | Bloqueio Otimista (*Optimistic Locking* com version timestamp) | Elimina 100% o risco de *race conditions* e duplo crédito de moedas em cliques rápidos do professor. | Retém a linha no banco durante a fração de milissegundo da transação. | Transações ultra-curtas e escopo estrito apenas ao registro `user_progress` em avaliação. |
+| **8. Motor de Escalamento** | **Comando Cron Agendado Diário (`kivara:check-student-inactivity`)** | Triggers em tempo real no banco a cada request | Elimina overhead computacional nas requisições normais e centraliza a política de abandono escolar. | O escalamento ocorre em janelas diárias em vez de tempo real imediato ao completar o 5º dia. | Execução agendada às 06:00 AM para preparar os alertas antes do início do turno escolar. |
+
+---
+
+## 7. Estado de Implementação e Conclusão Técnica
+
+- [x] **Migração Concluída:** `2026_08_27_120000_add_activation_fields_to_users_table` executada com sucesso no PostgreSQL.
+- [x] **Rotas e Endpoints:** 219 rotas registradas sob `/api/v1` espelhando todas as personas (Admin, Escola, Professor, Pai, Parceiro).
+- [x] **Serviços Nucleares:** `FinancialLedgerService`, `PedagogicalOrchestratorService`, `PartnerImpactService`, `EscalationNotificationService` e `MediaStorageService` operacionais em `app/Services/`.
+- [x] **Mailable e OTP:** `AccountActivationMail` e view Blade `activation.blade.php` com despacho assíncrono via Queue.
+- [x] **Agendador Cron:** `CheckStudentInactivityCommand` configurado para execução diária às `06:00 AM`.
