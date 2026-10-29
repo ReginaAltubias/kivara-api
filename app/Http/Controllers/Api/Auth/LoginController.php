@@ -63,6 +63,16 @@ class LoginController extends Controller
                 ], 401);
             }
 
+            if (!$user->is_active) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => $user->activation_code
+                        ? 'A conta ainda não foi ativada. Verifique o código enviado por email.'
+                        : 'A conta está suspensa. Contacte o administrador.',
+                    'error_code' => $user->activation_code ? 'account_not_activated' : 'account_inactive',
+                ], 403);
+            }
+
             // Define o tempo de expiração do Access Token baseado no Role
             $expiresIn = match ($user->role) {
                 'admin', 'coordinator' => 7200, // 2 horas
@@ -88,11 +98,14 @@ class LoginController extends Controller
                     'refresh_token' => $refreshToken,
                     'token_type' => 'Bearer',
                     'expires_in' => $expiresIn,
+                    'must_change_password' => (bool) $user->must_change_password,
                     'user' => [
                         'id' => $user->id,
                         'name' => $user->name,
                         'email' => $user->email,
                         'role' => $user->role,
+                        'tenant_id' => $user->tenant_id,
+                        'must_change_password' => (bool) $user->must_change_password,
                     ],
                 ],
             ], 201);

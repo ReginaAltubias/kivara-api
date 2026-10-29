@@ -95,6 +95,7 @@ class TrailController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'grade_level' => 'nullable|string',
+            'kivara_phase_id' => 'nullable|integer|min:1|max:10',
             'is_mandatory' => 'nullable|boolean',
             'lesson_ids' => 'nullable|array',
             'lesson_ids.*' => 'uuid|exists:lessons,id',
@@ -104,10 +105,12 @@ class TrailController extends Controller
             'id' => (string) Str::uuid(),
             'title' => $request->title,
             'description' => $request->description,
+            'kivara_phase_id' => $request->kivara_phase_id ?? 1,
             'grade_level' => $request->grade_level ?? '5-7',
             'is_mandatory' => (bool) ($request->is_mandatory ?? false),
             'is_published' => false,
             'version' => 1,
+            'order' => (int) Trail::max('order') + 1,
         ]);
 
         if ($request->filled('lesson_ids')) {

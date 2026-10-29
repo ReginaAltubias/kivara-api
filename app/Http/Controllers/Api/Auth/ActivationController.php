@@ -117,23 +117,35 @@ class ActivationController extends Controller
     )]
     public function resend(Request $request): JsonResponse
     {
-        $request->validate([
-            'email' => 'required|email|exists:users,email',
-        ]);
+        $request->validate(['email' => 'required|email']);
 
-        $user = User::where('email', $request->email)->firstOrFail();
+        // Resposta identica quer o email exista ou nao, e so contas com ativacao pendente
+        // sao tocadas (evita repor a palavra-passe de contas ativas por terceiros).
+        $user = User::where('email', $request->email)->whereNotNull('activation_code')->first();
 
-        $newPassword = Str::password(8, true, true, false, false);
-        $newCode = (string) random_int(100000, 999999);
+        if ($user) {
+            $newCode = (string) random_int(100000, 999999);
 
-        $user->forceFill([
-            'password'              => bcrypt($newPassword),
-            'activation_code'       => $newCode,
-            'activation_expires_at' => now()->addHours(24),
-            'must_change_password'  => true,
-        ])->save();
+            if ($user->must_change_password) {
+                // Conta criada por um administrador: novas credenciais temporarias.
+                $newPassword = Str::password(8, true, true, false, false);
+                $user->forceFill([
+                    'password'              => bcrypt($newPassword),
+                    'activation_code'       => $newCode,
+                    'activation_expires_at' => now()->addHours(24),
+                ])->save();
 
-        Mail::to($user->email)->queue(new AccountActivationMail($user, $newPassword, $newCode));
+                Mail::to($user->email)->queue(new AccountActivationMail($user, $newPassword, $newCode));
+            } else {
+                // Registo proprio: mantem a palavra-passe escolhida, apenas novo OTP.
+                $user->forceFill([
+                    'activation_code'       => $newCode,
+                    'activation_expires_at' => now()->addHours(24),
+                ])->save();
+
+                Mail::to($user->email)->queue(new \App\Mail\RegistrationOtpMail($user, $newCode));
+            }
+        }
 
         return response()->json([
             'status'  => 'success',

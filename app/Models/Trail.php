@@ -19,12 +19,19 @@ class Trail extends Model
         'kivara_phase_id',
         'status',
         'order',
+        'grade_level',
+        'is_mandatory',
+        'is_published',
+        'version',
     ];
 
     protected $casts = [
         'kivara_phase_id' => 'integer',
         'status' => ContentStatus::class,
         'order' => 'integer',
+        'is_mandatory' => 'boolean',
+        'is_published' => 'boolean',
+        'version' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',

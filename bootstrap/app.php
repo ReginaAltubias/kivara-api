@@ -27,5 +27,38 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        // Envelope de erro unico para a API: {status:"error", message, errors?}.
+        // Nunca expoe trace, ficheiros nem SQL; os detalhes ficam apenas nos logs.
+        $exceptions->shouldRenderJsonWhen(fn ($request, $e) => $request->is('api/*') || $request->expectsJson());
+
+        $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if (!$request->is('api/*') && !$request->expectsJson()) {
+                return null;
+            }
+
+            $error = fn (string $message, int $status, array $extra = []) => response()->json(
+                ['status' => 'error', 'message' => $message] + $extra,
+                $status
+            );
+
+            return match (true) {
+                $e instanceof \Illuminate\Validation\ValidationException
+                    => $error('Dados de validação inválidos.', 422, ['errors' => $e->errors()]),
+                $e instanceof \Illuminate\Auth\AuthenticationException
+                    => $error('Não autenticado.', 401),
+                $e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException,
+                $e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException
+                    => $error('Recurso não encontrado.', 404),
+                $e instanceof \Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException
+                    => $error('Método não permitido para este recurso.', 405),
+                $e instanceof \Illuminate\Http\Exceptions\ThrottleRequestsException
+                    => $error('Demasiados pedidos. Tente novamente dentro de instantes.', 429),
+                $e instanceof \Illuminate\Auth\Access\AuthorizationException
+                    => $error('Acesso não autorizado para o perfil do utilizador.', 403),
+                $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface
+                    => $error($e->getMessage() !== '' ? $e->getMessage() : 'Pedido inválido.', $e->getStatusCode()),
+                default
+                    => $error('Erro interno do servidor.', 500),
+            };
+        });
     })->create();

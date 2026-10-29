@@ -109,9 +109,25 @@ class MissionEvaluationController extends Controller
         ], 200);
     }
 
+    /** POST /api/v1/b2b/evaluations/{progressId}/approve */
+    public function approve(Request $request, string $progressId): JsonResponse
+    {
+        $request->merge(['status' => 'approved']);
+
+        return $this->evaluate($request, $progressId);
+    }
+
+    /** POST /api/v1/b2b/evaluations/{progressId}/reject */
+    public function reject(Request $request, string $progressId): JsonResponse
+    {
+        $request->merge(['status' => 'rejected']);
+
+        return $this->evaluate($request, $progressId);
+    }
+
     /**
      * POST /api/v1/school/evaluations/{progress_id}
-     * 
+     *
      * Avalia uma missão (Aprovar / Rejeitar) com bloqueio transacional (lockForUpdate)
      * e distribuição segura de moedas/XP via LedgerEntry.
      */
@@ -138,6 +154,22 @@ class MissionEvaluationController extends Controller
 
             if ($progress->status !== 'pending_review') {
                 abort(422, 'Esta submissão já foi avaliada anteriormente (estado atual: ' . $progress->status . ').');
+            }
+
+            // O professor so avalia alunos das turmas da sua escola (admin avalia qualquer um).
+            if ($teacher->role !== 'admin') {
+                $inTenant = DB::table('classroom_user')
+                    ->join('classrooms', 'classrooms.id', '=', 'classroom_user.classroom_id')
+                    ->where('classrooms.tenant_id', $teacher->tenant_id)
+                    ->where(function ($q) use ($progress) {
+                        $q->when($progress->child_profile_id, fn ($qq) => $qq->orWhere('classroom_user.child_profile_id', $progress->child_profile_id))
+                          ->when($progress->user_id, fn ($qq) => $qq->orWhere('classroom_user.user_id', $progress->user_id));
+                    })
+                    ->exists();
+
+                if (!$inTenant) {
+                    abort(403, 'Esta submissão não pertence a uma turma da sua escola.');
+                }
             }
 
             // Identificar o aluno (Teen ou Criança)

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -12,7 +13,7 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasRoles, HasUuids, Notifiable;
+    use HasApiTokens, HasFactory, HasRoles, HasUuids, Notifiable;
 
     protected $fillable = [
         'tenant_id',
@@ -27,6 +28,7 @@ class User extends Authenticatable
         'role',
         'pairing_code',
         'is_active',
+        'notification_settings',
     ];
 
     protected $hidden = [
@@ -42,6 +44,7 @@ class User extends Authenticatable
         'password' => 'hashed',
         'must_change_password' => 'boolean',
         'is_active' => 'boolean',
+        'notification_settings' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

@@ -40,8 +40,9 @@ class ClassroomController extends Controller
     )]
     public function index(Request $request): JsonResponse
     {
-        $classrooms = Classroom::where('tenant_id', $request->user()->tenant_id ?? null)
+        $classrooms = $this->scopedQuery($request)
             ->with('teacher')
+            ->withCount('students as student_count')
             ->get();
 
         return response()->json([
@@ -107,12 +108,58 @@ class ClassroomController extends Controller
     )]
     public function show(Request $request, string $id): JsonResponse
     {
-        $classroom = Classroom::findOrFail($id);
+        $classroom = $this->findScoped($request, $id);
 
         return response()->json([
             'status' => 'success',
             'data' => $classroom->load(['teachers', 'students']),
         ], 200);
+    }
+
+    /**
+     * PATCH /api/v1/classrooms/{id} - Atualizar Turma
+     */
+    public function update(Request $request, string $id): JsonResponse
+    {
+        $classroom = $this->findScoped($request, $id);
+
+        $data = $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'grade' => 'sometimes|nullable|string|max:50',
+            'grade_level' => 'sometimes|nullable|string|max:50',
+            'year' => 'sometimes|nullable|string|max:20',
+            'is_active' => 'sometimes|boolean',
+            'teacher_id' => 'sometimes|nullable|uuid|exists:users,id',
+        ]);
+
+        if (isset($data['grade']) && !isset($data['grade_level'])) {
+            $data['grade_level'] = $data['grade'];
+        }
+        unset($data['grade']);
+
+        $classroom->update($data);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Turma atualizada com sucesso.',
+            'data' => $classroom->fresh(),
+        ], 200);
+    }
+
+    /**
+     * DELETE /api/v1/classrooms/{id} - Eliminar Turma (desvincula alunos, professores e lições)
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $classroom = $this->findScoped($request, $id);
+
+        DB::transaction(function () use ($classroom) {
+            ClassroomUser::where('classroom_id', $classroom->id)->delete();
+            DB::table('classroom_lessons')->where('classroom_id', $classroom->id)->delete();
+            $classroom->delete();
+        });
+
+        return response()->json(['status' => 'success', 'message' => 'Turma eliminada com sucesso.'], 200);
     }
 
     /**
@@ -131,7 +178,7 @@ class ClassroomController extends Controller
     )]
     public function lessons(Request $request, string $id): JsonResponse
     {
-        $classroom = Classroom::findOrFail($id);
+        $classroom = $this->findScoped($request, $id);
 
         $assignedLessons = DB::table('classroom_lessons')
             ->where('classroom_id', $classroom->id)
@@ -186,7 +233,7 @@ class ClassroomController extends Controller
             'priority' => 'nullable|in:low,medium,high',
         ]);
 
-        $classroom = Classroom::findOrFail($id);
+        $classroom = $this->findScoped($request, $id);
         $lesson = Lesson::with('missionTemplates')->findOrFail($request->lesson_id);
 
         try {
@@ -225,6 +272,8 @@ class ClassroomController extends Controller
     )]
     public function removeLesson(Request $request, string $id, string $lessonId): JsonResponse
     {
+        $this->findScoped($request, $id);
+
         DB::table('classroom_lessons')
             ->where('classroom_id', $id)
             ->where('lesson_id', $lessonId)
@@ -282,34 +331,64 @@ class ClassroomController extends Controller
     )]
     public function stats(Request $request, string $id): JsonResponse
     {
-        $classroom = Classroom::findOrFail($id);
+        $classroom = $this->findScoped($request, $id);
 
-        $studentIds = $classroom->students()->pluck('users.id')
-            ->merge($classroom->childStudents()->pluck('child_profiles.id'))
-            ->unique()
-            ->toArray();
+        $studentIds = $classroom->students()->pluck('child_profiles.id')->unique()->values();
 
-        $lessonsTotal = DB::table('classroom_lessons')->where('classroom_id', $classroom->id)->count() * max(1, count($studentIds));
-        $lessonsTotal = max(10, $lessonsTotal);
+        $assigned = DB::table('classroom_lessons')->where('classroom_id', $classroom->id);
+        $lessonsAssigned = (clone $assigned)->count();
+        $overdue = (clone $assigned)->whereNotNull('due_date')->where('due_date', '<', now())->count();
 
-        $lessonsCompleted = UserProgress::whereIn('user_id', $studentIds)
-            ->orWhereIn('child_profile_id', $studentIds)
-            ->where('completed', true)
-            ->count();
-        $lessonsCompleted = min($lessonsCompleted, $lessonsTotal);
+        $progress = UserProgress::whereIn('child_profile_id', $studentIds);
+        $lessonsTotal = $lessonsAssigned * $studentIds->count();
+        $lessonsCompleted = (clone $progress)->where('completed', true)->count();
+        $lessonsCompleted = $lessonsTotal > 0 ? min($lessonsCompleted, $lessonsTotal) : $lessonsCompleted;
 
-        $completionRate = $lessonsTotal > 0 ? round($lessonsCompleted / $lessonsTotal, 2) : 0.0;
+        $withProgress = (clone $progress)->where('completed', true)->pluck('child_profile_id')->unique();
+        $atRisk = $lessonsAssigned > 0 ? $studentIds->diff($withProgress)->count() : 0;
 
         return response()->json([
             'data' => [
                 'classroom_id' => $classroom->id,
-                'completion_rate' => $completionRate > 0 ? $completionRate : 0.78,
-                'lessons_completed' => $lessonsCompleted > 0 ? $lessonsCompleted : 156,
-                'lessons_total' => $lessonsTotal > 0 ? $lessonsTotal : 200,
-                'missions_completed' => max(1, (int) ($lessonsCompleted * 0.75)),
-                'missions_overdue' => 4,
-                'avg_kiva_points' => 450,
-                'students_at_risk' => 2,
+                'students_count' => $studentIds->count(),
+                'completion_rate' => $lessonsTotal > 0 ? round($lessonsCompleted / $lessonsTotal, 2) : 0.0,
+                'lessons_assigned' => $lessonsAssigned,
+                'lessons_completed' => $lessonsCompleted,
+                'lessons_total' => $lessonsTotal,
+                'missions_completed' => $lessonsCompleted,
+                'missions_overdue' => $overdue,
+                'avg_kiva_points' => $studentIds->isEmpty() ? 0 : (int) round((clone $progress)->sum('total_xp_earned') / $studentIds->count()),
+                'students_at_risk' => $atRisk,
+            ],
+        ], 200);
+    }
+
+    /**
+     * GET /api/v1/school/stats - KPIs agregados da escola do utilizador autenticado
+     */
+    public function schoolStats(Request $request): JsonResponse
+    {
+        $classroomIds = $this->scopedQuery($request)->pluck('id');
+
+        $studentIds = ClassroomUser::whereIn('classroom_id', $classroomIds)
+            ->where('role', 'student')->whereNotNull('child_profile_id')->pluck('child_profile_id')->unique();
+
+        $assigned = DB::table('classroom_lessons')->whereIn('classroom_id', $classroomIds)->count();
+        $completed = UserProgress::whereIn('child_profile_id', $studentIds)->where('completed', true)->count();
+
+        $tenantId = $request->user()->tenant_id;
+        $teachers = \App\Models\User::when($tenantId && $request->user()->role !== 'admin', fn ($q) => $q->where('tenant_id', $tenantId))
+            ->whereIn('role', ['teacher', 'coordinator'])->count();
+
+        return response()->json([
+            'data' => [
+                'classrooms_count' => $classroomIds->count(),
+                'students_count' => $studentIds->count(),
+                'teachers_count' => $teachers,
+                'lessons_assigned' => $assigned,
+                'lessons_completed' => $completed,
+                'completion_rate' => ($assigned * max(1, $studentIds->count())) > 0
+                    ? round(min($completed / ($assigned * $studentIds->count()), 1), 2) : 0.0,
             ],
         ], 200);
     }
@@ -335,7 +414,7 @@ class ClassroomController extends Controller
             'user_id' => 'required|uuid|exists:users,id',
         ]);
 
-        $classroom = Classroom::findOrFail($id);
+        $classroom = $this->findScoped($request, $id);
 
         $existing = ClassroomUser::where('classroom_id', $classroom->id)
             ->where('user_id', $request->user_id)
@@ -372,7 +451,7 @@ class ClassroomController extends Controller
     )]
     public function students(Request $request, string $id): JsonResponse
     {
-        $classroom = Classroom::findOrFail($id);
+        $classroom = $this->findScoped($request, $id);
         $students = $classroom->students()->get();
 
         return response()->json([
@@ -403,7 +482,7 @@ class ClassroomController extends Controller
             'student_ids.*' => 'uuid|exists:child_profiles,id',
         ]);
 
-        $classroom = Classroom::findOrFail($id);
+        $classroom = $this->findScoped($request, $id);
 
         $added = 0;
         foreach ($request->student_ids as $studentId) {
@@ -452,7 +531,7 @@ class ClassroomController extends Controller
     )]
     public function removeStudent(Request $request, string $id, string $studentId): JsonResponse
     {
-        $classroom = Classroom::findOrFail($id);
+        $classroom = $this->findScoped($request, $id);
 
         ClassroomUser::where('classroom_id', $classroom->id)
             ->where('child_profile_id', $studentId)
@@ -462,5 +541,23 @@ class ClassroomController extends Controller
             'status' => 'success',
             'message' => 'Aluno removido.',
         ], 200);
+    }
+
+    /** Turmas visiveis ao utilizador: todas para admin, caso contrario so as do seu tenant. */
+    private function scopedQuery(Request $request): \Illuminate\Database\Eloquent\Builder
+    {
+        $user = $request->user();
+        $query = Classroom::query();
+
+        if ($user->role !== 'admin') {
+            $query->where('tenant_id', $user->tenant_id);
+        }
+
+        return $query;
+    }
+
+    private function findScoped(Request $request, string $id): Classroom
+    {
+        return $this->scopedQuery($request)->findOrFail($id);
     }
 }

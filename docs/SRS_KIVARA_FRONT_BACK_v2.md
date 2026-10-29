@@ -460,3 +460,34 @@ Webhooks (X-SEC-3), rate limiting, CORS por ambiente, OpenAPI completo e tipos g
 - Testes: `tests/Feature/AdminFinanceTest.php` (5 testes, 96 asserções). Em conjunto com `AdminCrudTest`: 9 testes, 170 asserções.
 - **Front:** `AdminCurrencies` (eliminar moeda e taxa), `AdminSubscriptions` (separador de facturas real, contadores reais, confirmação de eliminar plano que não era renderizada, ícone de eliminar), `AdminFinance` (faturas reais com filtros, paginação, criar/estado/eliminar, KPIs e gráficos reais na moeda base AOA, descongelar carteiras), `CurrencyDisplay` usa `/currencies`.
 - **Limitações:** os KPIs e gráficos são calculados só na moeda base AOA (sem conversão entre moedas); `plans`/`subscriptions` (B2B) e `subscription_plans` (admin) continuam a ser tabelas separadas e as faturas não ligam a `plans`; congelar carteira existe na API mas não tem botão no front; simulador de receita continua comentado na página.
+
+---
+
+## 13. Pendências do SRS resolvidas (2026-10-29)
+
+| ID | Estado | O que foi feito |
+|---|---|---|
+| X-SEC-1 | **Feito** | `bootstrap/app.php` renderiza erros da API como `{status:"error", message, errors?}` (404, 405, 401, 403, 422, 429, 500) sem *trace*, ficheiro nem SQL. Em produção manter `APP_DEBUG=false` (os detalhes ficam só nos logs). |
+| X-SEC-2 | **Feito** (auth) | Limitadores nomeados por rota e por email: login 10/min, registo 5/min, OTP 5/min, reenvio de OTP 3/min, esqueci-palavra-passe 3/min, repor 5/min. *Nota:* `throttle:N,M` partilha o contador entre rotas — usar sempre limitadores nomeados. Ainda sem limite: `school-applications` e webhooks. |
+| X-API-2 | **Feito** | `lang/pt/validation.php`: mensagens de validação em português com nomes de campos traduzidos. |
+| X-API-3 | **Feito** | `ModelNotFoundException` → 404 JSON (nunca 500). |
+| X-API-5 | **Feito** (middleware) | `user.role` unifica `coordinator`/`coordenador`/`school`/`school_admin` e lê `users.role` ou papéis Spatie; substitui todas as rotas `role:` (24) e `ability:role:*`. |
+| X-TEN-1 | **Feito** | `/auth/login` devolve `tenant_id` e `must_change_password` (em `data` e em `data.user`). |
+| X-TEN-2 | **Feito** (turmas) | `ClassroomController` filtra pelo tenant do token (admin vê todos); outra escola recebe 404. A avaliação de submissões só aceita alunos de turmas da escola do professor. Por rever: `school/students`, `school/challenges`, `teacher/*`. |
+| BE-REG | **Feito** | `POST /auth/register` (`parent`\|`partner`): conta inativa + tenant/família, OTP de 6 dígitos por email, sem token. Parceiro **não** fica pendente de aprovação (limitação). Login de conta inativa → 403 `account_not_activated`/`account_inactive`. |
+| BE-PWD | **Feito** | `POST /auth/forgot-password` (resposta idêntica exista ou não o email) e `POST /auth/reset-password` (token com hash, 60 min, uso único, revoga sessões). |
+| — | **Corrigido** | `POST /auth/resend-activation` permitia a qualquer pessoa **repor a palavra-passe de qualquer conta ativa**. Agora só toca em contas com ativação pendente; contas de auto-registo mantêm a palavra-passe e recebem só um novo OTP. |
+| — | **Corrigido** | Utilizadores suspensos (`is_active=false`) conseguiam iniciar sessão. |
+| BE-NOT | **Feito** | `GET /notifications` (`?unread=1`, paginado, `unread_count`), `PATCH /notifications/{id}/read`, `POST /notifications/mark-all-read`, `DELETE /notifications/{id}`, `GET/PUT /notifications/settings` (coluna `users.notification_settings`). `POST /admin/notifications/send` já gravava em `notifications`. |
+| BE-FIX-2 | **Feito** | `POST /trails` aceita `kivara_phase_id` (por omissão 1); migration com `grade_level`, `is_mandatory`, `is_published`, `version` (o controller já os usava). |
+| BE-FIX-3 | **Feito** | `GET /school/stats` → `ClassroomController::schoolStats` com dados reais; `GET /classrooms/{id}/stats` deixou de devolver números fixos (0.78, 156, 200…). |
+| BE-FIX-4 | **Feito** | Migration `classroom_lessons`. |
+| BE-FIX-5 | **Feito** | Coberto pelo middleware `user.role`. |
+| §4.1 | **Feito** | `PATCH/PUT/DELETE /classrooms/{id}` (+ `/school/classrooms/{id}`; só `coordinator`\|`admin`) e `POST /b2b/evaluations/{progressId}/approve\|reject`. |
+| FE-AUTH-2 | **Feito** | Login com `must_change_password` mostra o ecrã obrigatório e usa `POST /auth/change-password` (o endpoint `/auth/force-password-change` não existe); depois redireciona para o painel do papel. |
+| FE-AUTH-3 | **Feito** | `VerifyEmail` passou a ecrã de OTP (`verify-activation`/`resend-activation`); `RegistrationSuccess` leva a esse ecrã. O registo envia `name` e `password_confirmation` e já não regista a palavra-passe na consola. |
+| FE-UI-3 | **Feito** | O sino usa `/notifications` real (o fallback derivado só ativa se a API devolver 404). |
+
+**Ainda em aberto:** X-SEC-3 (HMAC nos webhooks), X-SEC-4 (CORS por ambiente), X-SEC-6 (modelo de sessão), X-API-1/4/6/7, BE-FIX-6/7/8/9, BE-TCH, BE-TPL, BE-INV, `GET /teacher/classrooms/{id}/progress|evaluations` (seleciona `users.*` de uma relação de `child_profiles`), FE-AUTH-4/5, FE-ERR-1/2, aprovação de parceiros no registo, e a rota `/force-password-change` só existe para sessões sem utilizador.
+
+**Testes:** `AuthFlowTest` (6), `SchoolAndNotificationsTest` (4), `AdminCrudTest` (4), `AdminFinanceTest` (5). `User` ganhou `HasFactory`; continuam a falhar 7 testes antigos (`WalletTest`, `TransactionTest`, 1 de `AuthTest`) por falta de fábricas dos restantes modelos.
