@@ -27,6 +27,7 @@ class PartnerChallenge extends Model
         'school_reward_type',
         'school_reward_description',
         'school_reward_id',
+        'tenant_id',
     ];
 
     protected $casts = [

@@ -28,16 +28,7 @@ class SchoolProfileController extends Controller
     )]
     public function show(Request $request, ?string $id = null): JsonResponse
     {
-        $tenantId = $id ?? $request->user()->tenant_id;
-
-        if (!$tenantId) {
-            return response()->json([
-                'status'  => 'error',
-                'message' => 'Escola não encontrada.',
-            ], 404);
-        }
-
-        $tenant = Tenant::findOrFail($tenantId);
+        $tenant = $this->resolveTenant($request, $id);
 
         return response()->json([
             'id'              => $tenant->id,
@@ -79,9 +70,7 @@ class SchoolProfileController extends Controller
     )]
     public function update(Request $request, ?string $id = null): JsonResponse
     {
-        $tenantId = $id ?? $request->user()->tenant_id;
-
-        $tenant = Tenant::findOrFail($tenantId);
+        $tenant = $this->resolveTenant($request, $id, write: true);
 
         $validated = $request->validate([
             'name'            => 'sometimes|required|string|max:255',
@@ -130,7 +119,7 @@ class SchoolProfileController extends Controller
     )]
     public function uploadLogo(Request $request, string $id): JsonResponse
     {
-        $tenant = Tenant::findOrFail($id);
+        $tenant = $this->resolveTenant($request, $id, write: true);
 
         $request->validate([
             'file' => 'nullable|image|max:5120',
@@ -152,7 +141,29 @@ class SchoolProfileController extends Controller
         }
 
         return response()->json([
-            'url' => 'https://storage.kivara.ao/schools/logos/horizonte.webp',
-        ], 200);
+            'status'  => 'error',
+            'message' => 'Envie uma imagem no campo "file" ou "logo".',
+        ], 422);
+    }
+
+    /**
+     * Um utilizador so acede ao tenant da sua escola (o admin acede a qualquer um) e so a
+     * direcao da escola (ou o admin) pode alterar o perfil.
+     */
+    private function resolveTenant(Request $request, ?string $id, bool $write = false): Tenant
+    {
+        $user = $request->user();
+        $isAdmin = $user->role === 'admin';
+        $tenantId = $id ?? $user->tenant_id;
+
+        if (!$tenantId || (!$isAdmin && $tenantId !== $user->tenant_id)) {
+            abort(404, 'Escola não encontrada.');
+        }
+
+        if ($write && !$isAdmin && !in_array($user->role, ['coordinator', 'coordenador', 'school', 'school_admin'], true)) {
+            abort(403, 'Apenas a direção da escola pode alterar o perfil.');
+        }
+
+        return Tenant::findOrFail($tenantId);
     }
 }

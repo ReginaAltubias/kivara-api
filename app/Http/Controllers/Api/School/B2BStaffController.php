@@ -170,12 +170,12 @@ class B2BStaffController extends Controller
             'is_active' => 'required|boolean',
         ]);
 
-        $tenantId = $request->user()->tenant_id;
-        $staff = User::where('tenant_id', $tenantId)->findOrFail($id);
+        $staff = $this->staffMember($request, $id);
 
-        $staff->update([
-            'is_active' => $request->is_active,
-        ]);
+        $staff->update(['is_active' => $request->boolean('is_active')]);
+        if (!$staff->is_active) {
+            $staff->tokens()->delete();
+        }
 
         return response()->json([
             'success'   => true,
@@ -213,5 +213,69 @@ class B2BStaffController extends Controller
             'message'     => 'Permissões atualizadas com sucesso.',
             'permissions' => $permissions,
         ], 200);
+    }
+
+    /**
+     * DELETE /api/v1/school/teachers/{id}
+     * Remove o professor da escola: desliga-o das turmas, retira-o do tenant e suspende a conta.
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $staff = $this->staffMember($request, $id);
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($staff) {
+            \App\Models\ClassroomUser::where('user_id', $staff->id)->where('role', 'teacher')->delete();
+            $staff->tokens()->delete();
+            $staff->update(['tenant_id' => null, 'is_active' => false]);
+        });
+
+        return response()->json(['status' => 'success', 'message' => 'Professor removido da escola.'], 200);
+    }
+
+    /**
+     * PATCH /api/v1/school/teachers/{id}/classrooms
+     * Define as turmas (da mesma escola) em que o professor leciona.
+     */
+    public function syncClassrooms(Request $request, string $id): JsonResponse
+    {
+        $data = $request->validate([
+            'classroom_ids' => 'present|array',
+            'classroom_ids.*' => 'uuid',
+        ]);
+
+        $teacher = $this->staffMember($request, $id);
+        $ids = array_values(array_unique($data['classroom_ids']));
+
+        $own = \App\Models\Classroom::where('tenant_id', $teacher->tenant_id)->whereIn('id', $ids)->pluck('id')->all();
+        if (count($own) !== count($ids)) {
+            abort(422, 'Só pode associar turmas da sua escola.');
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($teacher, $own) {
+            \App\Models\ClassroomUser::where('user_id', $teacher->id)->where('role', 'teacher')->delete();
+            foreach ($own as $classroomId) {
+                \App\Models\ClassroomUser::create(['classroom_id' => $classroomId, 'user_id' => $teacher->id, 'role' => 'teacher']);
+            }
+        });
+
+        return response()->json(['status' => 'success', 'message' => 'Turmas atualizadas.', 'data' => ['classroom_ids' => $own]], 200);
+    }
+
+    /** Funcionario da escola do utilizador autenticado (nunca ele proprio nem a direcao). */
+    private function staffMember(Request $request, string $id): User
+    {
+        $actor = $request->user();
+
+        if (!$actor->tenant_id) {
+            abort(403, 'O utilizador autenticado não está associado a nenhuma escola.');
+        }
+
+        $staff = User::where('tenant_id', $actor->tenant_id)->whereIn('role', ['teacher'])->findOrFail($id);
+
+        if ($staff->id === $actor->id) {
+            abort(422, 'Não pode alterar a sua própria conta.');
+        }
+
+        return $staff;
     }
 }

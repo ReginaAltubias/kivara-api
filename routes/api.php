@@ -331,6 +331,10 @@ Route::prefix('v1')->group(function () {
             // Gestão de Professores & Permissões
             Route::get('teachers', [B2BStaffController::class, 'index'])->name('school.teachers.index');
             Route::post('staff/invite', [B2BStaffController::class, 'invite'])->name('school.staff.invite');
+            Route::post('teachers/invite', [B2BStaffController::class, 'invite'])->name('school.teachers.invite');
+            Route::patch('teachers/{id}/status', [B2BStaffController::class, 'updateStatus'])->middleware('user.role:coordinator|admin')->name('school.teachers.status');
+            Route::patch('teachers/{id}/classrooms', [B2BStaffController::class, 'syncClassrooms'])->middleware('user.role:coordinator|admin')->name('school.teachers.classrooms');
+            Route::delete('teachers/{id}', [B2BStaffController::class, 'destroy'])->middleware('user.role:coordinator|admin')->name('school.teachers.destroy');
             Route::get('permissions/teachers', [B2BStaffController::class, 'index'])->name('school.permissions.teachers');
             Route::patch('teacher-permissions/{id}', [B2BStaffController::class, 'updatePermissions'])->name('school.teacher-permissions.update');
 
@@ -662,13 +666,16 @@ Route::prefix('v1')->group(function () {
 
     // Webhook Multicaixa Express (liquidação de top-up)
     Route::post('finance/wallet/webhooks/multicaixa', [WalletController::class, 'settleTopUp'])
+        ->middleware(['webhook.signature', 'throttle:60,1'])
         ->name('wallet.webhook.multicaixa');
 
     // Webhook Multicaixa / Gateway (liquidação de subscrições B2B)
     Route::post('school/subscription/webhook', [PaymentWebhookController::class, 'handle'])
+        ->middleware(['webhook.signature', 'throttle:60,1'])
         ->name('school.subscription.webhook');
 
     // Webhook Multicaixa / Gateway (liquidação de carregamentos B2B de Parceiros)
     Route::post('partner/wallet/webhook', [PartnerWalletController::class, 'webhook'])
+        ->middleware(['webhook.signature', 'throttle:60,1'])
         ->name('partner.wallet.webhook');
 });

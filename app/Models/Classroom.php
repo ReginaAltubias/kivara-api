@@ -81,6 +81,22 @@ class Classroom extends Model
                     ->withTimestamps();
     }
 
+    /** Alunos que sao perfis de crianca (alias de students()). */
+    public function childStudents(): BelongsToMany
+    {
+        return $this->students();
+    }
+
+    /** Alunos adolescentes (contas em `users`), ligados por classroom_user.user_id. */
+    public function teenStudents(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'classroom_user', 'classroom_id', 'user_id')
+                    ->using(ClassroomUser::class)
+                    ->withPivot('role', 'child_profile_id', 'joined_at', 'left_at')
+                    ->wherePivot('role', 'student')
+                    ->withTimestamps();
+    }
+
     /**
      * Retorna os desafios desta turma.
      */

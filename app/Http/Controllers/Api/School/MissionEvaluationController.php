@@ -57,13 +57,13 @@ class MissionEvaluationController extends Controller
             ->firstOrFail();
 
         // Recolhe IDs de todos os alunos da turma
-        $teenIds = $classroom->students()->pluck('users.id');
+        $teenIds = $classroom->teenStudents()->pluck('users.id');
         $childIds = $classroom->childStudents()->pluck('child_profiles.id');
 
         $pending = UserProgress::with([
             'learningObject:id,title,type,reward_xp,reward_coins,description',
             'teen:id,name,email',
-            'child:id,name,display_name,avatar,total_xp',
+            'child:id,name,avatar,total_xp',
         ])
             ->where('status', 'pending_review')
             ->where(function ($q) use ($teenIds, $childIds) {
@@ -73,7 +73,7 @@ class MissionEvaluationController extends Controller
             ->orderBy('submitted_at', 'asc') // FIFO: mais antigo primeiro
             ->get()
             ->map(function ($p) {
-                $studentName = $p->child?->display_name ?? $p->child?->name ?? $p->teen?->name ?? 'Aluno';
+                $studentName = $p->child?->name ?? $p->teen?->name ?? 'Aluno';
                 $studentAvatar = $p->child?->avatar ?? '👤';
                 $studentType = $p->user_id ? 'teen' : 'child';
                 $studentId = $p->user_id ?? $p->child_profile_id;

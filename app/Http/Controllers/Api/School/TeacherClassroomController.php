@@ -41,8 +41,7 @@ class TeacherClassroomController extends Controller
         $classrooms = Classroom::whereHas('teachers', function ($q) use ($user) {
             $q->where('users.id', $user->id);
         })
-            ->withCount('students as student_count')
-            ->with('tenant:id,name')
+            ->with(['tenant:id,name', 'teenStudents:users.id,users.name,users.email', 'childStudents:child_profiles.id,child_profiles.name'])
             ->orderByDesc('created_at')
             ->get()
             ->map(fn($c) => [
@@ -51,7 +50,10 @@ class TeacherClassroomController extends Controller
                 'grade_level'   => $c->grade_level,
                 'year'          => $c->year,
                 'invite_code'   => $c->invite_code,
-                'student_count' => $c->student_count,
+                'student_count' => $c->teenStudents->count() + $c->childStudents->count(),
+                'students'      => $c->teenStudents->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'display_name' => $u->name, 'email' => $u->email, 'type' => 'teen'])
+                    ->concat($c->childStudents->map(fn ($ch) => ['id' => $ch->id, 'name' => $ch->name, 'display_name' => $ch->name, 'type' => 'child']))
+                    ->values(),
                 'school'        => $c->tenant?->name,
             ]);
 
@@ -78,33 +80,34 @@ class TeacherClassroomController extends Controller
         $teacher   = $request->user();
         $classroom = $this->getTeacherClassroom($teacher, $id);
 
-        // Alunos teen (tabela users) — já associados via classroom_user
-        $teenStudents = $classroom->students()   // scope de teens
+        // Alunos adolescentes (tabela users): XP = soma do XP ganho nas lições aprovadas
+        $teenStudents = $classroom->teenStudents()
             ->select('users.id', 'users.name', 'users.email')
-            ->withSum('ledgerEntries as total_xp', 'amount')
             ->get()
-            ->map(fn($s) => [
-                'id'         => $s->id,
-                'name'       => $s->name,
-                'type'       => 'teen',
-                'total_xp'   => (int) ($s->total_xp ?? 0),
-                'level'      => (int) (floor(($s->total_xp ?? 0) / 1000) + 1),
-                'pending_reviews' => UserProgress::where('user_id', $s->id)
-                    ->pendingReview()->count(),
-            ]);
+            ->map(function ($s) {
+                $xp = (int) UserProgress::where('user_id', $s->id)->sum('total_xp_earned');
 
-        // Alunos criança (child_profiles)
+                return [
+                    'id'              => $s->id,
+                    'name'            => $s->name,
+                    'type'            => 'teen',
+                    'total_xp'        => $xp,
+                    'level'           => (int) (floor($xp / 1000) + 1),
+                    'pending_reviews' => UserProgress::where('user_id', $s->id)->pendingReview()->count(),
+                ];
+            });
+
+        // Alunos crianca (child_profiles)
         $childStudents = $classroom->childStudents()
-            ->select('child_profiles.id', 'child_profiles.display_name')
+            ->select('child_profiles.id', 'child_profiles.name', 'child_profiles.total_xp')
             ->get()
-            ->map(fn($c) => [
-                'id'         => $c->id,
-                'name'       => $c->display_name,
-                'type'       => 'child',
-                'total_xp'   => 0,
-                'level'      => 1,
-                'pending_reviews' => UserProgress::where('child_profile_id', $c->id)
-                    ->pendingReview()->count(),
+            ->map(fn ($c) => [
+                'id'              => $c->id,
+                'name'            => $c->name,
+                'type'            => 'child',
+                'total_xp'        => (int) ($c->total_xp ?? 0),
+                'level'           => (int) (floor(($c->total_xp ?? 0) / 1000) + 1),
+                'pending_reviews' => UserProgress::where('child_profile_id', $c->id)->pendingReview()->count(),
             ]);
 
         $all = $teenStudents->merge($childStudents)->sortByDesc('total_xp')->values();
@@ -133,12 +136,12 @@ class TeacherClassroomController extends Controller
         $classroom = $this->getTeacherClassroom($teacher, $id);
 
         // Recolhe IDs de alunos da turma (teens)
-        $teenIds = $classroom->students()->pluck('users.id');
+        $teenIds = $classroom->teenStudents()->pluck('users.id');
 
         // Recolhe IDs de crianças
         $childIds = $classroom->childStudents()->pluck('child_profiles.id');
 
-        $queue = UserProgress::with(['learningObject:id,title,type', 'teen:id,name', 'child:id,display_name'])
+        $queue = UserProgress::with(['learningObject:id,title,type', 'teen:id,name', 'child:id,name'])
             ->where('status', 'pending_review')
             ->where(function ($q) use ($teenIds, $childIds) {
                 $q->whereIn('user_id', $teenIds)
@@ -148,7 +151,7 @@ class TeacherClassroomController extends Controller
             ->get()
             ->map(fn($p) => [
                 'progress_id'     => $p->id,
-                'student_name'    => $p->teen?->name ?? $p->child?->display_name,
+                'student_name'    => $p->teen?->name ?? $p->child?->name,
                 'student_type'    => $p->user_id ? 'teen' : 'child',
                 'lesson_title'    => $p->learningObject?->title,
                 'lesson_type'     => $p->learningObject?->type,
@@ -186,7 +189,7 @@ class TeacherClassroomController extends Controller
         $classroom = $this->getTeacherClassroom($teacher, $id);
         $lo        = LearningObject::findOrFail($request->learning_object_id);
 
-        $teenIds  = $classroom->students()->pluck('users.id');
+        $teenIds  = $classroom->teenStudents()->pluck('users.id');
         $childIds = $classroom->childStudents()->pluck('child_profiles.id');
 
         $assigned = 0;
@@ -241,7 +244,7 @@ class TeacherClassroomController extends Controller
         $schoolName = $classroom->tenant?->name ?? 'KIVARA';
 
         $student = User::where('email', $request->email)
-            ->whereIn('name', ['teen', 'yang']) // role-based (spatie)
+            ->whereIn('role', ['teen', 'yang'])
             ->first();
 
         // Aluno ainda não tem conta — envia convite por email

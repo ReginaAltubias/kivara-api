@@ -20,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
             'abilities' => \Laravel\Sanctum\Http\Middleware\CheckAbilities::class,
             'ability' => \Laravel\Sanctum\Http\Middleware\CheckForAnyAbility::class,
+            'webhook.signature' => \App\Http\Middleware\VerifyWebhookSignature::class,
             'user.role' => \App\Http\Middleware\EnsureUserRole::class,
             'force_password_change' => \App\Http\Middleware\ForcePasswordChange::class,
             'subscribed.tenant' => \App\Http\Middleware\CheckTenantSubscription::class,

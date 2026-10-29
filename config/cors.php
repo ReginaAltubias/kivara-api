@@ -19,7 +19,18 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [env('FRONTEND_URL', 'http://localhost:8080')],
+    // Origens permitidas por ambiente: CORS_ALLOWED_ORIGINS (lista separada por virgulas) ou,
+    // por omissao, FRONTEND_URL + origens de desenvolvimento/app movel (Capacitor).
+    'allowed_origins' => array_values(array_filter(array_map('trim', explode(',', (string) env(
+        'CORS_ALLOWED_ORIGINS',
+        implode(',', [
+            env('FRONTEND_URL', 'http://localhost:8080'),
+            'http://localhost:8080',
+            'http://127.0.0.1:8080',
+            'https://localhost',
+            'capacitor://localhost',
+        ])
+    ))))),
 
     'allowed_origins_patterns' => [],
 

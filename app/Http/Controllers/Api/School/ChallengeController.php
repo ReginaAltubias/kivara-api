@@ -31,7 +31,7 @@ class ChallengeController extends Controller
     )]
     public function index(Request $request): JsonResponse
     {
-        $challenges = PartnerChallenge::with(['schoolReward', 'classrooms:id,name,grade_level'])
+        $challenges = $this->scoped($request)->with(['schoolReward', 'classrooms:id,name,grade_level'])
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(function ($c) {
@@ -96,15 +96,24 @@ class ChallengeController extends Controller
         ]);
 
         $partnerName = $request->user()->school_name ?? $request->user()->name ?? 'Escola KIVARA';
+        $tenantId = $request->user()->tenant_id;
+
+        if (!empty($validated['classroom_ids']) && $request->user()->role !== 'admin') {
+            $own = Classroom::where('tenant_id', $tenantId)->whereIn('id', $validated['classroom_ids'])->count();
+            if ($own !== count(array_unique($validated['classroom_ids']))) {
+                abort(422, 'Só pode associar turmas da sua escola.');
+            }
+        }
 
         $goalType = $validated['type'] ?? 'total_xp';
         if (!in_array($goalType, ['total_xp', 'lessons_completed', 'savings_amount'])) {
             $goalType = 'total_xp';
         }
 
-        $challenge = DB::transaction(function () use ($validated, $partnerName) {
+        $challenge = DB::transaction(function () use ($validated, $partnerName, $goalType, $tenantId) {
             $ch = PartnerChallenge::create([
                 'partner_name'              => $partnerName,
+                'tenant_id'                 => $tenantId,
                 'title'                     => $validated['title'],
                 'description'               => $validated['description'] ?? null,
                 'goal_type'                 => $goalType,
@@ -154,7 +163,7 @@ class ChallengeController extends Controller
     )]
     public function update(Request $request, string $id): JsonResponse
     {
-        $challenge = PartnerChallenge::findOrFail($id);
+        $challenge = $this->scoped($request)->findOrFail($id);
 
         $validated = $request->validate([
             'title'                     => 'sometimes|required|string|max:255',
@@ -202,9 +211,9 @@ class ChallengeController extends Controller
             new OA\Response(response: 204, description: "Recurso removido com sucesso.")
         ]
     )]
-    public function destroy(string $id): JsonResponse
+    public function destroy(Request $request, string $id): JsonResponse
     {
-        $challenge = PartnerChallenge::findOrFail($id);
+        $challenge = $this->scoped($request)->findOrFail($id);
         $challenge->delete();
 
         return response()->json([
@@ -286,5 +295,25 @@ class ChallengeController extends Controller
             'status' => 'success',
             'data'   => $leaderboard,
         ], 200);
+    }
+
+    /**
+     * Desafios visiveis ao utilizador: os criados pela sua escola ou aqueles em que
+     * participam turmas da sua escola. O admin ve todos.
+     */
+    private function scoped(Request $request): \Illuminate\Database\Eloquent\Builder
+    {
+        $user = $request->user();
+        $query = PartnerChallenge::query();
+
+        if ($user->role !== 'admin') {
+            $tenantId = $user->tenant_id;
+            $query->where(function ($q) use ($tenantId) {
+                $q->where('tenant_id', $tenantId)
+                  ->orWhereHas('classrooms', fn ($c) => $c->where('classrooms.tenant_id', $tenantId));
+            });
+        }
+
+        return $query;
     }
 }

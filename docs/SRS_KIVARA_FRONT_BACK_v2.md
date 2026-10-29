@@ -491,3 +491,24 @@ Webhooks (X-SEC-3), rate limiting, CORS por ambiente, OpenAPI completo e tipos g
 **Ainda em aberto:** X-SEC-3 (HMAC nos webhooks), X-SEC-4 (CORS por ambiente), X-SEC-6 (modelo de sessão), X-API-1/4/6/7, BE-FIX-6/7/8/9, BE-TCH, BE-TPL, BE-INV, `GET /teacher/classrooms/{id}/progress|evaluations` (seleciona `users.*` de uma relação de `child_profiles`), FE-AUTH-4/5, FE-ERR-1/2, aprovação de parceiros no registo, e a rota `/force-password-change` só existe para sessões sem utilizador.
 
 **Testes:** `AuthFlowTest` (6), `SchoolAndNotificationsTest` (4), `AdminCrudTest` (4), `AdminFinanceTest` (5). `User` ganhou `HasFactory`; continuam a falhar 7 testes antigos (`WalletTest`, `TransactionTest`, 1 de `AuthTest`) por falta de fábricas dos restantes modelos.
+
+---
+
+## 14. Escola e Professor — segurança, webhooks e fila de avaliação (2026-10-29)
+
+| ID | Estado | O que foi feito |
+|---|---|---|
+| X-SEC-3 | **Feito** | Os três webhooks de pagamento (`finance/wallet/webhooks/multicaixa`, `school/subscription/webhook`, `partner/wallet/webhook`) estavam **públicos e sem autenticação** (qualquer pessoa podia marcar um carregamento como concluído). Passam a exigir `X-Kivara-Signature` = HMAC-SHA256 do corpo com `PAYMENT_WEBHOOK_SECRET` (prefixo `sha256=` opcional). Sem segredo configurado respondem **503** (falha fechada); assinatura errada → 401; limite 60/min. |
+| X-SEC-4 | **Feito** | CORS por ambiente: `CORS_ALLOWED_ORIGINS` (lista) ou, por omissão, `FRONTEND_URL` + `localhost:8080`, `127.0.0.1:8080`, `https://localhost`, `capacitor://localhost`. |
+| X-TEN-2 | **Feito** | Desafios (`school/challenges`): nova coluna `partner_challenges.tenant_id`; antes qualquer escola via, editava e apagava os desafios de todas e podia associar turmas de outra escola. Perfil da escola (`GET/PATCH /tenants/{id}`, logótipo): cada utilizador só acede ao seu tenant (404 nos restantes) e só a direção/admin altera (403 ao professor). |
+| BE-FIX-6 | **Feito** | `POST /tenants/{id}/logo` guarda o ficheiro e grava `logo_url`; sem ficheiro → 422 (já não devolve um URL fixo). |
+| BE-TCH | **Feito** | `PATCH /school/teachers/{id}/status` (revoga sessões ao suspender), `DELETE /school/teachers/{id}` (desliga das turmas, retira do tenant, suspende), `PATCH /school/teachers/{id}/classrooms` (turmas da própria escola), `POST /school/teachers/invite`. Só `coordinator`/`admin`; nunca a própria conta. |
+| Professor | **Feito** | `GET /b2b/teacher/classrooms/{id}/progress` e `/evaluations` e `POST …/missions` rebentavam (alunos adolescentes tratados como `child_profiles`; coluna `display_name` inexistente). `Classroom` ganhou `teenStudents()`/`childStudents()`; `GET /b2b/teacher/classrooms` inclui os alunos. `inviteStudent` filtrava `users.name` em vez de `users.role`. |
+| Modelo | **Corrigido** | `user_progress.child_profile_id` era `NOT NULL`: **nenhum adolescente podia ter progresso nem submissões**. Migration torna-o opcional e cria `UNIQUE(user_id, learning_object_id)`. |
+| Front | **Feito** | `TeacherReviewQueue` deixou de usar dados de demonstração e de engolir erros: lê as submissões reais de todas as turmas e aprova/rejeita em `POST /b2b/evaluations/{id}/approve\|reject`. O contador do cabeçalho e o *badge* do menu vêm de `usePendingEvaluationsCount`; removidos os indicadores fictícios ("< 2 min", "+12 Avaliadas Hoje", badge fixo 5). |
+
+**Verificado no browser:** professor entra, vê a submissão real "Joao Aluno – Turma 9A", aprova com nota; a BD fica `approved`, `total_xp_earned=120`, `teacher_feedback`, `reviewed_by`, e o aluno recebe uma notificação.
+
+**Testes:** `WebhookSecurityTest` (4), `TeacherFlowTest` (6). Total back: 34 testes novos/atualizados desde a secção 11.
+
+**Ainda em aberto:** `school/teachers` `updatePermissions` continua a ser um *stub* (devolve sucesso sem gravar); desafios de parceiros (`/partner/*`) não têm isolamento revisto; aprovação de parceiros no registo; X-SEC-6 (modelo de sessão), X-API-1/4/6/7, BE-FIX-7/8/9, BE-TPL, BE-INV; o ecrã de ativação do onboarding do professor chama `/onboarding/steps`, `/streaks/activity` e `/challenges/collective` (404 na API); `TeacherSchoolProfile` usa `POST /school/teachers` e `PATCH …/deactivate`.
