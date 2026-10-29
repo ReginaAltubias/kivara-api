@@ -20,10 +20,25 @@ class Tenant extends Model
         'domain',
         'description',
         'subscription_tier_id',
+        'nif',
+        'school_type',
+        'education_level',
+        'country',
+        'province',
+        'city',
+        'address',
+        'phone',
+        'website',
+        'director_name',
+        'director_phone',
+        'director_email',
+        'logo_url',
+        'agreement',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'agreement' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

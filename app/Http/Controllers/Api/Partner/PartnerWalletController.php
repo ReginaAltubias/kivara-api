@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\LedgerEntry;
 use App\Models\Partner;
 use App\Models\PaymentIntent;
+use App\Models\Tenant;
 use App\Models\Wallet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -47,6 +48,7 @@ class PartnerWalletController extends Controller
                 'currency'        => 'KVC',
             ],
             [
+                'tenant_id' => $this->resolveTenantId($request, $partner),
                 'balance'   => 0,
                 'is_frozen' => false,
             ]
@@ -140,6 +142,7 @@ class PartnerWalletController extends Controller
                 'currency'        => 'KVC',
             ],
             [
+                'tenant_id' => $this->resolveTenantId($request, $partner),
                 'balance'   => 0,
                 'is_frozen' => false,
             ]
@@ -348,5 +351,34 @@ class PartnerWalletController extends Controller
             'contact_email' => $user->email,
             'is_active'     => true,
         ]);
+    }
+
+    /**
+     * Tenant da carteira do parceiro. `wallets.tenant_id` é obrigatório: se o utilizador
+     * ainda não tem tenant, cria (ou reutiliza) o tenant do tipo "partner" com o nome do parceiro.
+     */
+    private function resolveTenantId(Request $request, Partner $partner): string
+    {
+        $user = $request->user();
+
+        if ($user->tenant_id) {
+            return $user->tenant_id;
+        }
+
+        $tenant = Tenant::firstOrCreate(
+            ['name' => $partner->name],
+            [
+                'tenant_type' => 'partner',
+                'currency'    => 'AOA',
+                'is_active'   => true,
+                'email'       => $partner->contact_email,
+            ]
+        );
+
+        if ($user->partner_id === $partner->id) {
+            $user->forceFill(['tenant_id' => $tenant->id])->save();
+        }
+
+        return $tenant->id;
     }
 }

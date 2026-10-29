@@ -42,20 +42,23 @@ class SchoolProfileController extends Controller
         return response()->json([
             'id'              => $tenant->id,
             'name'            => $tenant->name,
-            'nif'             => '5401928374',
-            'school_type'     => $tenant->tenant_type ?? 'private',
-            'education_level' => 'multi',
-            'country'         => 'Angola',
-            'province'        => 'Luanda',
-            'city'            => 'Luanda',
-            'address'         => $tenant->description ?? 'Rua 21 de Janeiro, Morro Bento',
-            'phone'           => '+244923456789',
+            'nif'             => $tenant->nif,
+            'school_type'     => $tenant->school_type,
+            'tenant_type'     => $tenant->tenant_type,
+            'education_level' => $tenant->education_level,
+            'country'         => $tenant->country,
+            'province'        => $tenant->province,
+            'city'            => $tenant->city,
+            'address'         => $tenant->address,
+            'phone'           => $tenant->phone,
             'contact_email'   => $tenant->email ?? $tenant->admin_email,
-            'website'         => $tenant->domain ? "https://{$tenant->domain}" : null,
-            'director_name'   => 'Direção Pedagógica',
-            'director_phone'  => '+244923000999',
-            'director_email'  => $tenant->admin_email,
-            'logo_url'        => 'https://storage.kivara.ao/schools/logos/horizonte.webp',
+            'website'         => $tenant->website,
+            'director_name'   => $tenant->director_name,
+            'director_phone'  => $tenant->director_phone,
+            'director_email'  => $tenant->director_email ?? $tenant->admin_email,
+            'logo_url'        => $tenant->logo_url,
+            'currency'        => $tenant->currency,
+            'is_active'       => (bool) $tenant->is_active,
             'status'          => $tenant->is_active ? 'active' : 'inactive',
         ], 200);
     }
@@ -81,19 +84,27 @@ class SchoolProfileController extends Controller
         $tenant = Tenant::findOrFail($tenantId);
 
         $validated = $request->validate([
-            'name'          => 'sometimes|required|string|max:255',
-            'contact_email' => 'nullable|email',
-            'admin_email'   => 'nullable|email',
-            'phone'         => 'nullable|string|max:30',
-            'address'       => 'nullable|string|max:255',
+            'name'            => 'sometimes|required|string|max:255',
+            'contact_email'   => 'nullable|email',
+            'admin_email'     => 'nullable|email',
+            'phone'           => 'nullable|string|max:30',
+            'address'         => 'nullable|string|max:255',
+            'nif'             => 'nullable|string|max:30',
+            'website'         => 'nullable|string|max:255',
+            'country'         => 'nullable|string|max:100',
+            'province'        => 'nullable|string|max:100',
+            'city'            => 'nullable|string|max:100',
+            'director_name'   => 'nullable|string|max:255',
+            'director_phone'  => 'nullable|string|max:30',
+            'director_email'  => 'nullable|email',
         ]);
 
-        $tenant->update([
-            'name'        => $validated['name'] ?? $tenant->name,
-            'email'       => $validated['contact_email'] ?? $tenant->email,
-            'admin_email' => $validated['admin_email'] ?? $tenant->admin_email,
-            'description' => $validated['address'] ?? $tenant->description,
-        ]);
+        if (array_key_exists('contact_email', $validated)) {
+            $validated['email'] = $validated['contact_email'];
+        }
+        unset($validated['contact_email']);
+
+        $tenant->update($validated);
 
         return response()->json([
             'status'  => 'success',
@@ -131,6 +142,7 @@ class SchoolProfileController extends Controller
         if ($file) {
             $path = $file->store('schools/logos', 'public');
             $url = Storage::disk('public')->url($path);
+            $tenant->update(['logo_url' => $url]);
 
             return response()->json([
                 'status'  => 'success',

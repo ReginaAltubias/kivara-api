@@ -8,6 +8,9 @@ use App\Http\Controllers\Api\Admin\AdminNotificationController;
 use App\Http\Controllers\Api\Admin\AdminOnboardingController;
 use App\Http\Controllers\Api\Admin\AdminRiskController;
 use App\Http\Controllers\Api\Admin\AdminSubscriptionController;
+use App\Http\Controllers\Api\Admin\AdminTenantController;
+use App\Http\Controllers\Api\Admin\AdminUserController;
+use App\Http\Controllers\Api\Admin\AdminStatsController;
 use App\Http\Controllers\Api\Auth\ActivationController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
@@ -115,7 +118,7 @@ Route::prefix('v1')->group(function () {
                 ], 200);
             })->name('auth.refresh');
             Route::post('security-check', [AdminAuditController::class, 'securityCheck'])
-                ->middleware('ability:role:admin')
+                ->middleware('user.role:admin')
                 ->name('auth.security-check');
         });
 
@@ -205,10 +208,10 @@ Route::prefix('v1')->group(function () {
         Route::prefix('b2b')->group(function () {
             // School Applications
             Route::prefix('school-applications')->group(function () {
-                Route::get('/', [SchoolApplicationController::class, 'index'])->name('school-applications.index')->middleware('role:admin');
-                Route::get('{id}', [SchoolApplicationController::class, 'show'])->name('school-applications.show')->middleware('role:admin');
-                Route::post('{id}/approve', [SchoolApplicationController::class, 'approve'])->name('school-applications.approve')->middleware('role:admin');
-                Route::post('{id}/reject', [SchoolApplicationController::class, 'reject'])->name('school-applications.reject')->middleware('role:admin');
+                Route::get('/', [SchoolApplicationController::class, 'index'])->name('school-applications.index')->middleware('user.role:admin');
+                Route::get('{id}', [SchoolApplicationController::class, 'show'])->name('school-applications.show')->middleware('user.role:admin');
+                Route::post('{id}/approve', [SchoolApplicationController::class, 'approve'])->name('school-applications.approve')->middleware('user.role:admin');
+                Route::post('{id}/reject', [SchoolApplicationController::class, 'reject'])->name('school-applications.reject')->middleware('user.role:admin');
             });
 
             // Staff Management (Coordinators only)
@@ -519,18 +522,42 @@ Route::prefix('v1')->group(function () {
         // ====================================================================
         Route::prefix('family')->group(function () {
             Route::post('generate-code', [FamilyPairingController::class, 'generateCode'])
-                ->middleware('ability:role:teen,role:yang')
+                ->middleware('user.role:teen,yang')
                 ->name('family.generate-code');
             Route::post('pair', [FamilyPairingController::class, 'pairWithTeen'])
-                ->middleware('ability:role:parent')
+                ->middleware('user.role:parent')
                 ->name('family.pair');
         });
 
         // ====================================================================
         // ADMIN - Gestão Global
         // ====================================================================
-        Route::middleware(['ability:role:admin'])->prefix('admin')->group(function () {
+        Route::middleware(['user.role:admin'])->prefix('admin')->group(function () {
             Route::apiResource('subscription-plans', AdminSubscriptionController::class);
+
+            Route::get('stats', [AdminStatsController::class, 'index'])->name('admin.stats');
+
+            // Tenants / Escolas
+            Route::prefix('tenants')->group(function () {
+                Route::post('{id}/activate', [AdminTenantController::class, 'activate'])->name('admin.tenants.activate');
+                Route::post('{id}/deactivate', [AdminTenantController::class, 'deactivate'])->name('admin.tenants.deactivate');
+                Route::patch('{id}/subscription', [AdminTenantController::class, 'subscription'])->name('admin.tenants.subscription');
+                Route::post('{id}/agreement', [AdminTenantController::class, 'agreement'])->name('admin.tenants.agreement');
+                Route::post('{id}/send-credentials', [AdminTenantController::class, 'sendCredentials'])->name('admin.tenants.send-credentials');
+                Route::get('{id}/members', [AdminTenantController::class, 'members'])->name('admin.tenants.members');
+                Route::get('{id}/classrooms', [AdminTenantController::class, 'classrooms'])->name('admin.tenants.classrooms');
+                Route::get('{id}/students', [AdminTenantController::class, 'students'])->name('admin.tenants.students');
+                Route::post('{id}/reassign-admin', [AdminTenantController::class, 'reassignAdmin'])->name('admin.tenants.reassign-admin');
+            });
+            Route::apiResource('tenants', AdminTenantController::class)->parameters(['tenants' => 'id']);
+
+            // Utilizadores
+            Route::prefix('users')->group(function () {
+                Route::post('{id}/block', [AdminUserController::class, 'block'])->name('admin.users.block');
+                Route::post('{id}/unblock', [AdminUserController::class, 'unblock'])->name('admin.users.unblock');
+                Route::post('{id}/resend-activation', [AdminUserController::class, 'resendActivation'])->name('admin.users.resend-activation');
+            });
+            Route::apiResource('users', AdminUserController::class)->parameters(['users' => 'id']);
 
             // Admin Roles
             Route::prefix('roles')->group(function () {
@@ -576,14 +603,13 @@ Route::prefix('v1')->group(function () {
     
     // Tenants (Public list for school registration dropdowns, etc)
     Route::get('tenants', function (\Illuminate\Http\Request $request) {
-        // Mock tenants or return from DB if Tenant model exists
-        // Since we don't know the exact schema, returning a basic mock to satisfy the frontend
-        return response()->json([
-            'status' => 'success',
-            'data' => [
-                ['id' => '1', 'name' => 'Colégio de Teste', 'type' => 'school']
-            ]
-        ]);
+        $tenants = \App\Models\Tenant::where('is_active', true)
+            ->when($request->query('type'), fn ($q, $type) => $q->where('tenant_type', $type))
+            ->orderBy('name')
+            ->get(['id', 'name', 'tenant_type'])
+            ->map(fn ($t) => ['id' => $t->id, 'name' => $t->name, 'type' => $t->tenant_type, 'tenant_type' => $t->tenant_type]);
+
+        return response()->json(['status' => 'success', 'data' => $tenants]);
     })->name('tenants.public');
 
     // B2B Public Endpoints

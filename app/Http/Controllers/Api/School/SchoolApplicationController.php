@@ -5,6 +5,10 @@ namespace App\Http\Controllers\Api\School;
 use OpenApi\Attributes as OA;
 
 use App\Models\SchoolApplication;
+use App\Models\Tenant;
+use App\Models\User;
+use App\Support\AccountProvisioner;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Http\Controllers\Controller;
@@ -24,7 +28,10 @@ class SchoolApplicationController extends Controller
     )]
     public function index(Request $request): JsonResponse
     {
-        $applications = SchoolApplication::paginate(20);
+        $applications = SchoolApplication::query()
+            ->when($request->query('status'), fn ($q, $status) => $q->where('status', $status))
+            ->latest()
+            ->paginate(100);
         return response()->json(['status' => 'success', 'data' => $applications->items(), 'pagination' => ['total' => $applications->total()]], 200);
     }
 
@@ -69,8 +76,12 @@ class SchoolApplicationController extends Controller
             'director_email' => 'required|email|unique:school_applications,director_email',
         ]);
 
-        $app = SchoolApplication::create($request->all());
-        return response()->json(['status' => 'success', 'message' => 'Candidatura recebida', 'data' => $app], 201);
+        $app = SchoolApplication::create($request->only([
+            'name', 'nif', 'school_type', 'education_level', 'country', 'province', 'city',
+            'address', 'phone', 'contact_email', 'website', 'director_name', 'director_phone',
+            'director_email', 'motivation',
+        ]));
+        return response()->json(['status' => 'success', 'message' => 'Candidatura recebida', 'data' => $app->fresh()], 201);
     }
 
         #[OA\Post(
@@ -88,8 +99,55 @@ class SchoolApplicationController extends Controller
     public function approve(Request $request, string $id): JsonResponse
     {
         $app = SchoolApplication::findOrFail($id);
-        $app->update(['status' => 'approved', 'reviewed_at' => now()]);
-        return response()->json(['status' => 'success', 'message' => 'Escola aprovada', 'data' => $app], 200);
+
+        if ($app->status === 'approved' && $app->tenant_id) {
+            return response()->json(['status' => 'success', 'message' => 'Candidatura ja aprovada.', 'data' => $app], 200);
+        }
+        if (Tenant::where('name', $app->name)->exists()) {
+            return response()->json(['status' => 'error', 'message' => 'Ja existe um tenant com este nome.'], 422);
+        }
+        if (User::where('email', $app->contact_email)->exists()) {
+            return response()->json(['status' => 'error', 'message' => 'O email de contacto ja tem conta.'], 422);
+        }
+
+        $emailSent = false;
+        DB::transaction(function () use ($app, $request, &$emailSent) {
+            $tenant = Tenant::create([
+                'name' => $app->name,
+                'tenant_type' => 'school',
+                'nif' => $app->nif,
+                'school_type' => $app->school_type,
+                'education_level' => $app->education_level,
+                'country' => $app->country,
+                'province' => $app->province,
+                'city' => $app->city,
+                'address' => $app->address,
+                'phone' => $app->phone,
+                'email' => $app->contact_email,
+                'admin_email' => $app->contact_email,
+                'website' => $app->website,
+                'director_name' => $app->director_name,
+                'director_phone' => $app->director_phone,
+                'director_email' => $app->director_email,
+            ]);
+
+            $result = AccountProvisioner::create([
+                'tenant_id' => $tenant->id,
+                'name' => $app->director_name ?? $app->name,
+                'email' => $app->contact_email,
+                'role' => 'coordinator',
+            ]);
+            $emailSent = $result['email_sent'];
+
+            $app->update([
+                'status' => 'approved',
+                'tenant_id' => $tenant->id,
+                'reviewed_at' => now(),
+                'reviewed_by' => $request->user()?->id,
+            ]);
+        });
+
+        return response()->json(['status' => 'success', 'message' => 'Escola aprovada', 'email_sent' => $emailSent, 'data' => $app->fresh()], 200);
     }
 
         #[OA\Post(

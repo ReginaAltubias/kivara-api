@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Gamification;
 
 use OpenApi\Attributes as OA;
 
+use App\Models\ChildProfile;
 use App\Models\Streak;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -26,7 +27,12 @@ class StreakController extends Controller
     public function record(Request $request): JsonResponse
     {
         $request->validate(['activity_type' => 'required|string']);
-        
+
+        // Sequências só existem para perfis de criança; outros utilizadores não têm `child_profile_id`.
+        if (! $request->user() instanceof ChildProfile) {
+            return response()->json(['status' => 'success', 'data' => ['current_streak' => 0, 'maintained' => false]], 200);
+        }
+
         $streak = Streak::firstOrCreate(['child_profile_id' => $request->user()->id]);
         $today = now()->startOfDay();
         $lastActivity = $streak->last_activity_at?->startOfDay();
@@ -63,6 +69,13 @@ class StreakController extends Controller
     )]
     public function show(Request $request): JsonResponse
     {
+        if (! $request->user() instanceof ChildProfile) {
+            return response()->json([
+                'status' => 'success',
+                'data' => ['current_streak' => 0, 'best_streak' => 0, 'last_activity_at' => null],
+            ], 200);
+        }
+
         $streak = Streak::where('child_profile_id', $request->user()->id)->firstOrCreate(['child_profile_id' => $request->user()->id]);
         return response()->json(['status' => 'success', 'data' => $streak], 200);
     }

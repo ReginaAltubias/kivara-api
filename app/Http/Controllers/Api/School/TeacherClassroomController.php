@@ -41,11 +41,7 @@ class TeacherClassroomController extends Controller
         $classrooms = Classroom::whereHas('teachers', function ($q) use ($user) {
             $q->where('users.id', $user->id);
         })
-            ->withCount([
-                'pivot as student_count' => function ($q) {
-                    $q->where('role', 'student');
-                },
-            ])
+            ->withCount('students as student_count')
             ->with('tenant:id,name')
             ->orderByDesc('created_at')
             ->get()
