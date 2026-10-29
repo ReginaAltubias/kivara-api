@@ -13,13 +13,9 @@ class CurrencyController extends Controller
      */
     public function index(): JsonResponse
     {
-        return response()->json([
-            'status' => 'success',
-            'data' => [
-                ['code' => 'AOA', 'name' => 'Kwanzas', 'symbol' => 'Kz'],
-                ['code' => 'USD', 'name' => 'US Dollar', 'symbol' => '$'],
-                ['code' => 'EUR', 'name' => 'Euro', 'symbol' => '€'],
-            ]
-        ]);
+        $currencies = \App\Models\Currency::where('is_active', true)->orderBy('code')
+            ->get(['code', 'name', 'symbol', 'decimal_places', 'is_active']);
+
+        return response()->json(['status' => 'success', 'data' => $currencies]);
     }
 }

@@ -18,11 +18,15 @@ class Wallet extends Model
         'balance',
         'currency',
         'is_frozen',
+        'freeze_reason',
+        'frozen_at',
+        'frozen_by',
     ];
 
     protected $casts = [
         'balance' => 'decimal:2',
         'is_frozen' => 'boolean',
+        'frozen_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

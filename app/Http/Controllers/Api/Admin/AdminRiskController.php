@@ -35,6 +35,7 @@ class AdminRiskController extends Controller
                 'ledgerEntry:id,wallet_id,amount,direction,entry_type,created_at',
                 'reviewer:id,name,email',
             ])
+            ->when($request->boolean('unresolved'), fn ($query) => $query->where('is_reviewed', false))
             ->when($request->filled('status'), function ($query) use ($request) {
                 $status = $request->string('status')->toString();
 
@@ -50,7 +51,7 @@ class AdminRiskController extends Controller
                 $query->where('risk_level', $request->string('risk_level'));
             })
             ->latest()
-            ->paginate(50);
+            ->paginate(min((int) $request->query('limit', 50), 200));
 
         return response()->json([
             'status' => 'success',

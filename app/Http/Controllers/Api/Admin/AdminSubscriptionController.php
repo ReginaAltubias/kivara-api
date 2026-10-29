@@ -28,9 +28,19 @@ class AdminSubscriptionController extends Controller
     )]
     public function index(): JsonResponse
     {
+        $counts = \App\Models\Tenant::whereNotNull('subscription_tier_id')
+            ->selectRaw('subscription_tier_id, COUNT(*) as total')
+            ->groupBy('subscription_tier_id')
+            ->pluck('total', 'subscription_tier_id');
+
         $plans = SubscriptionPlan::query()
             ->orderBy('monthly_price')
-            ->get();
+            ->get()
+            ->map(function (SubscriptionPlan $plan) use ($counts) {
+                $plan->setAttribute('tenant_count', (int) ($counts[$plan->id] ?? 0));
+
+                return $plan;
+            });
 
         return response()->json([
             'status' => 'success',
@@ -183,6 +193,15 @@ class AdminSubscriptionController extends Controller
     public function destroy(string $subscription_plan): JsonResponse
     {
         $plan = SubscriptionPlan::findOrFail($subscription_plan);
+
+        $inUse = \App\Models\Tenant::where('subscription_tier_id', $plan->id)->count();
+        if ($inUse > 0) {
+            return response()->json([
+                'status' => 'error',
+                'message' => "O plano esta atribuido a {$inUse} tenant(s). Desative-o em vez de o eliminar.",
+            ], 409);
+        }
+
         $plan->delete();
 
         return response()->json([

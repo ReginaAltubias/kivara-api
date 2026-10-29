@@ -439,3 +439,24 @@ Webhooks (X-SEC-3), rate limiting, CORS por ambiente, OpenAPI completo e tipos g
 **Front** — `use-tenants.ts` (`/admin/tenants`, ativar/desativar por POST, `useDeleteTenant`), `AdminTenants` (botão eliminar), `AdminSchools` (membros/turmas/alunos por `/admin/tenants/{id}/…`, candidaturas via `/b2b/school-applications`, sem palavra-passe temporária no `localStorage`), `AdminUsers` (paginação, filtro de estado, estatísticas e último acesso reais; botão reenviar ativação; corrigido o bug em que a função `createForm` era ofuscada pelo estado homónimo e o formulário de edição nunca era preenchido), `AdminDashboard` (cartões e Top Escolas reais). Gráficos de receita/planos/progresso e o feed de atividade continuam com dados de demonstração.
 
 **Por fazer / a decidir:** `QUEUE_CONNECTION=sync` e `MAIL_MAILER=log` no `.env` local — em produção configurar SMTP e, se a fila deixar de ser `sync`, correr *worker*; ecrã de ativação OTP/troca de palavra-passe no front (FE-AUTH-2/3); `waitlist` de candidaturas não existe na API.
+
+---
+
+## 12. Admin — Finanças, Subscrição e Moeda (implementado em 2026-10-29)
+
+**Back (`kivara-api`)** — migration `2026_10_29_110000_add_finance_module_fields` (campos em `invoices`, congelamento em `wallets`, tabela `regional_prices`, moedas AOA/USD/EUR por omissão). Rotas sob `/api/v1/admin` (`user.role:admin`):
+
+| Módulo | Rotas |
+|---|---|
+| Moedas | `GET/POST /admin/currencies`, `GET/PUT/PATCH/DELETE /admin/currencies/{code}`, `POST …/toggle-active` (409 se a moeda estiver em uso por tenants/carteiras/taxas) |
+| Taxas de câmbio | `GET/POST /admin/exchange-rates`, `PUT/PATCH/DELETE /admin/exchange-rates/{id}` (par único, `base_currency`/`target_currency`) |
+| Planos | `/admin/subscription-plans` (já existia) + `tenant_count` por plano; DELETE devolve 409 se houver tenants com o plano |
+| Preços regionais | `GET/POST /admin/regional-prices`, `PUT/DELETE …/{id}` (único por plano+moeda) |
+| Faturas | `GET/POST /admin/finance/invoices`, `GET/PATCH/DELETE …/{id}`, `GET /admin/finance/invoices/summary` (por estado, moeda, tipo e últimos 6 meses). Faturas pagas não se eliminam nem mudam de valor |
+| Carteiras | `GET /admin/wallets?is_frozen=`, `POST …/{id}/freeze`, `POST …/{id}/unfreeze`, `GET /admin/profiles?ids=` |
+| Painel | `GET /admin/stats` passa a incluir `money_supply`; `GET /admin/risk-flags` aceita `unresolved` e `limit` e devolve `severity` |
+| Público | `GET /currencies` devolve as moedas ativas reais (antes *mock*) |
+
+- Testes: `tests/Feature/AdminFinanceTest.php` (5 testes, 96 asserções). Em conjunto com `AdminCrudTest`: 9 testes, 170 asserções.
+- **Front:** `AdminCurrencies` (eliminar moeda e taxa), `AdminSubscriptions` (separador de facturas real, contadores reais, confirmação de eliminar plano que não era renderizada, ícone de eliminar), `AdminFinance` (faturas reais com filtros, paginação, criar/estado/eliminar, KPIs e gráficos reais na moeda base AOA, descongelar carteiras), `CurrencyDisplay` usa `/currencies`.
+- **Limitações:** os KPIs e gráficos são calculados só na moeda base AOA (sem conversão entre moedas); `plans`/`subscriptions` (B2B) e `subscription_plans` (admin) continuam a ser tabelas separadas e as faturas não ligam a `plans`; congelar carteira existe na API mas não tem botão no front; simulador de receita continua comentado na página.

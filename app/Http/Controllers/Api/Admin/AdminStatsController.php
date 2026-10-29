@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ChildProfile;
+use App\Models\DreamVault;
 use App\Models\LedgerEntry;
 use App\Models\Task;
 use App\Models\Tenant;
@@ -39,6 +40,9 @@ class AdminStatsController extends Controller
 
         $todayEntries = LedgerEntry::where('created_at', '>=', $today);
 
+        $emitted = (float) LedgerEntry::where('direction', 'credit')->sum('amount');
+        $burned = (float) LedgerEntry::where('direction', 'debit')->sum('amount');
+
         return response()->json([
             'status' => 'success',
             'data' => [
@@ -59,6 +63,16 @@ class AdminStatsController extends Controller
                 'dailyTxVolume' => (float) (clone $todayEntries)->sum('amount'),
                 'dailyTxCount' => (clone $todayEntries)->count(),
                 'weeklySparkline' => $sparkline,
+                'money_supply' => [
+                    'total_emitted' => $emitted,
+                    'total_burned' => $burned,
+                    'total_in_circulation' => $emitted - $burned,
+                    'total_in_wallets' => (float) Wallet::sum('balance'),
+                    'total_in_vaults' => (float) DreamVault::sum('current_amount'),
+                    'wallet_count' => Wallet::count(),
+                    'system_wallet_id' => '',
+                    'audit_timestamp' => now()->toISOString(),
+                ],
             ],
         ]);
     }

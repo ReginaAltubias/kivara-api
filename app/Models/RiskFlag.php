@@ -22,11 +22,18 @@ class RiskFlag extends Model
         'admin_notes',
     ];
 
+    protected $appends = ['severity'];
+
     protected $casts = [
         'is_reviewed' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    public function getSeverityAttribute(): ?string
+    {
+        return $this->risk_level;
+    }
 
     /**
      * Carteira alvo do alerta.

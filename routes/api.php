@@ -11,6 +11,11 @@ use App\Http\Controllers\Api\Admin\AdminSubscriptionController;
 use App\Http\Controllers\Api\Admin\AdminTenantController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminStatsController;
+use App\Http\Controllers\Api\Admin\AdminCurrencyController;
+use App\Http\Controllers\Api\Admin\AdminExchangeRateController;
+use App\Http\Controllers\Api\Admin\AdminInvoiceController;
+use App\Http\Controllers\Api\Admin\AdminWalletController;
+use App\Http\Controllers\Api\Admin\AdminRegionalPriceController;
 use App\Http\Controllers\Api\Auth\ActivationController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
@@ -550,6 +555,21 @@ Route::prefix('v1')->group(function () {
                 Route::post('{id}/reassign-admin', [AdminTenantController::class, 'reassignAdmin'])->name('admin.tenants.reassign-admin');
             });
             Route::apiResource('tenants', AdminTenantController::class)->parameters(['tenants' => 'id']);
+
+            // Financas
+            Route::get('finance/invoices/summary', [AdminInvoiceController::class, 'summary'])->name('admin.finance.summary');
+            Route::apiResource('finance/invoices', AdminInvoiceController::class)->parameters(['invoices' => 'id']);
+
+            Route::get('wallets', [AdminWalletController::class, 'index'])->name('admin.wallets.index');
+            Route::post('wallets/{id}/freeze', [AdminWalletController::class, 'freeze'])->name('admin.wallets.freeze');
+            Route::post('wallets/{id}/unfreeze', [AdminWalletController::class, 'unfreeze'])->name('admin.wallets.unfreeze');
+            Route::get('profiles', [AdminWalletController::class, 'profiles'])->name('admin.profiles');
+
+            // Moedas, taxas de cambio e precos regionais
+            Route::post('currencies/{code}/toggle-active', [AdminCurrencyController::class, 'toggleActive'])->name('admin.currencies.toggle');
+            Route::apiResource('currencies', AdminCurrencyController::class)->parameters(['currencies' => 'code']);
+            Route::apiResource('exchange-rates', AdminExchangeRateController::class)->parameters(['exchange-rates' => 'id']);
+            Route::apiResource('regional-prices', AdminRegionalPriceController::class)->parameters(['regional-prices' => 'id'])->except(['show']);
 
             // Utilizadores
             Route::prefix('users')->group(function () {

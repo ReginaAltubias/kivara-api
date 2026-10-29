@@ -20,6 +20,10 @@ class Invoice extends Model
         'payment_reference',
         'payment_payload',
         'paid_at',
+        'type',
+        'currency',
+        'plan_name',
+        'description',
     ];
 
     protected $casts = [
