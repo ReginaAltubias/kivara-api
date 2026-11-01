@@ -27,6 +27,14 @@ class Partner extends Model
         'rejection_reason',
         'reviewed_at',
         'reviewed_by',
+        'province',
+        'website',
+        'director_role',
+        'director_email',
+        'director_phone',
+        'subscription_tier_id',
+        'subscription_period',
+        'subscription_ends_at',
     ];
 
     protected $casts = [

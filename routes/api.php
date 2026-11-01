@@ -295,12 +295,29 @@ Route::prefix('v1')->group(function () {
         // PARTNER (SPONSOR) DASHBOARD, FINANCIAMENTO B2B, PROGRAMAS & DESAFIOS
         // ====================================================================
         // Estado da candidatura (acessivel mesmo antes da aprovacao)
+        // Convites de programa — lado do destinatario (familia / escola)
+        Route::get('invitations/mine', [\App\Http\Controllers\Api\Partner\ProgramInvitationController::class, 'mine'])->name('invitations.mine');
+        Route::get('partner/invitations/{code}/validate', [\App\Http\Controllers\Api\Partner\ProgramInvitationController::class, 'validateCode'])->name('partner.invitations.validate');
+        Route::post('partner/invitations/accept', [\App\Http\Controllers\Api\Partner\ProgramInvitationController::class, 'accept'])->name('partner.invitations.accept');
+        Route::post('partner/invitations/reject', [\App\Http\Controllers\Api\Partner\ProgramInvitationController::class, 'reject'])->name('partner.invitations.reject');
+
         Route::get('partner/status', [\App\Http\Controllers\Api\Partner\PartnerStatusController::class, 'show'])
             ->middleware('user.role:partner|admin')->name('partner.status');
 
         Route::prefix('partner')->middleware(['user.role:partner|admin', 'partner.approved'])->group(function () {
             Route::get('dashboard', [PartnerDashboardController::class, 'index'])->name('partner.dashboard');
             Route::get('limits', [\App\Http\Controllers\Api\Partner\PartnerStatusController::class, 'limits'])->name('partner.limits');
+            Route::get('prizes', [\App\Http\Controllers\Api\Partner\PartnerPrizeController::class, 'index'])->name('partner.prizes.index');
+            Route::post('prizes', [\App\Http\Controllers\Api\Partner\PartnerPrizeController::class, 'store'])->name('partner.prizes.store');
+            Route::patch('prizes/{id}', [\App\Http\Controllers\Api\Partner\PartnerPrizeController::class, 'update'])->name('partner.prizes.update');
+            Route::delete('prizes/{id}', [\App\Http\Controllers\Api\Partner\PartnerPrizeController::class, 'destroy'])->name('partner.prizes.destroy');
+            Route::get('profile', [\App\Http\Controllers\Api\Partner\PartnerProfileController::class, 'show'])->name('partner.profile.show');
+            Route::match(['put', 'patch'], 'profile', [\App\Http\Controllers\Api\Partner\PartnerProfileController::class, 'update'])->name('partner.profile.update');
+            Route::post('profile/logo', [\App\Http\Controllers\Api\Partner\PartnerProfileController::class, 'logo'])->name('partner.profile.logo');
+            Route::get('subscription', [\App\Http\Controllers\Api\Partner\PartnerSubscriptionController::class, 'current'])->name('partner.subscription.current');
+            Route::post('subscription/subscribe', [\App\Http\Controllers\Api\Partner\PartnerSubscriptionController::class, 'subscribe'])->name('partner.subscription.subscribe');
+            Route::post('subscription/cancel', [\App\Http\Controllers\Api\Partner\PartnerSubscriptionController::class, 'cancel'])->name('partner.subscription.cancel');
+            Route::get('subscription/invoices', [\App\Http\Controllers\Api\Partner\PartnerSubscriptionController::class, 'invoices'])->name('partner.subscription.invoices');
             Route::get('wallet', [PartnerWalletController::class, 'show'])->name('partner.wallet.show');
             Route::post('wallet/top-up', [PartnerWalletController::class, 'topUp'])->name('partner.wallet.top-up');
 
@@ -311,7 +328,11 @@ Route::prefix('v1')->group(function () {
                 Route::get('{id}', [PartnerProgramController::class, 'show'])->name('partner.programs.show');
                 Route::patch('{id}', [PartnerProgramController::class, 'update'])->name('partner.programs.update');
                 Route::delete('{id}', [PartnerProgramController::class, 'destroy'])->name('partner.programs.destroy');
+                Route::get('{id}/invitations', [\App\Http\Controllers\Api\Partner\ProgramInvitationController::class, 'index'])->name('partner.programs.invitations');
+                Route::post('{id}/invite', [\App\Http\Controllers\Api\Partner\ProgramInvitationController::class, 'store'])->name('partner.programs.invite');
             });
+            Route::get('invitations', [\App\Http\Controllers\Api\Partner\ProgramInvitationController::class, 'index'])->name('partner.invitations.index');
+            Route::delete('invitations/{id}', [\App\Http\Controllers\Api\Partner\ProgramInvitationController::class, 'revoke'])->name('partner.invitations.revoke');
 
             // Desafios Institucionais criados pelo Parceiro
             Route::prefix('challenges')->group(function () {
@@ -363,6 +384,11 @@ Route::prefix('v1')->group(function () {
             Route::match(['put', 'patch'], 'classrooms/{id}', [ClassroomController::class, 'update'])->middleware('user.role:coordinator|admin')->name('school.classrooms.update');
             Route::delete('classrooms/{id}', [ClassroomController::class, 'destroy'])->middleware('user.role:coordinator|admin')->name('school.classrooms.destroy');
             Route::get('stats', [ClassroomController::class, 'schoolStats'])->name('school.stats');
+            Route::get('prizes', function (\Illuminate\Http\Request $request) {
+                $rows = \App\Models\ChallengePrize::where('tenant_id', $request->user()->tenant_id)->latest()->get();
+
+                return response()->json(['status' => 'success', 'data' => $rows->map->present()->values()]);
+            })->name('school.prizes.index');
 
             // Relatórios e ROI Pedagógico
             Route::get('reports', [ReportController::class, 'reports'])->name('school.reports.index');
