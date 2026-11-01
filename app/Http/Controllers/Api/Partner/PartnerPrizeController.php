@@ -10,6 +10,7 @@ use App\Support\PartnerContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 /** Premios que o parceiro atribui e entrega as turmas/escolas dos seus desafios. */
 class PartnerPrizeController extends Controller
@@ -83,5 +84,21 @@ class PartnerPrizeController extends Controller
         $prize->delete();
 
         return response()->json(['status' => 'success', 'message' => 'Prémio eliminado.']);
+    }
+
+    /** POST /partner/prizes/{id}/proof — anexa o comprovativo de entrega (PDF ou imagem). */
+    public function uploadProof(Request $request, string $id): JsonResponse
+    {
+        $partner = PartnerContext::resolve($request);
+        $prize = ChallengePrize::where('partner_id', $partner->id)->findOrFail($id);
+        $request->validate(['proof' => 'required|file|mimes:pdf,jpg,jpeg,png|max:5120']);
+
+        if ($prize->proof_document_url && str_contains($prize->proof_document_url, '/storage/prizes/')) {
+            Storage::disk('public')->delete(ltrim(substr($prize->proof_document_url, strpos($prize->proof_document_url, 'prizes/')), '/'));
+        }
+        $path = $request->file('proof')->store("prizes/{$partner->id}", 'public');
+        $prize->update(['proof_document_url' => Storage::disk('public')->url($path)]);
+
+        return response()->json(['status' => 'success', 'data' => $prize->fresh()->present()]);
     }
 }

@@ -96,6 +96,17 @@ class PartnerProgramController extends Controller
 
         $allocatedBudget = (int) $validated['allocated_budget'];
 
+        // Limite de programas do plano (ou da configuracao): programas nao cancelados/concluidos
+        $limits = $partner->limits();
+        $current = PartnerProgram::where('partner_id', $partner->id)->whereNotIn('status', ['cancelled', 'completed'])->count();
+        if ($current >= $limits['max_programs']) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 'program_limit_reached',
+                'message' => "Atingiu o limite de {$limits['max_programs']} programas do seu plano. Conclua um programa ou mude de plano.",
+            ], 422);
+        }
+
         $program = DB::transaction(function () use ($partner, $validated, $allocatedBudget) {
             if ($allocatedBudget > 0) {
                 // Obter a carteira KVC do parceiro com bloqueio pessimista

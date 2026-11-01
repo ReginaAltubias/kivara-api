@@ -128,6 +128,37 @@ class ProgramInvitationController extends Controller
         return $this->resolve($request, 'rejected');
     }
 
+    /** Inscreve as turmas ativas da escola nos desafios ativos/agendados do programa (idempotente). */
+    public static function enrolSchool(string $tenantId, string $programId): int
+    {
+        $classrooms = DB::table('classrooms')->where('tenant_id', $tenantId)->where('is_active', true)->pluck('id');
+        $challenges = DB::table('partner_challenges')->where('program_id', $programId)->whereIn('status', ['active', 'scheduled'])->pluck('id');
+
+        $added = 0;
+        foreach ($challenges as $challengeId) {
+            foreach ($classrooms as $classroomId) {
+                $exists = DB::table('classroom_challenge')->where('partner_challenge_id', $challengeId)->where('classroom_id', $classroomId)->exists();
+                if (! $exists) {
+                    DB::table('classroom_challenge')->insert([
+                        'id' => (string) Str::uuid(), 'partner_challenge_id' => $challengeId, 'classroom_id' => $classroomId,
+                        'current_progress' => 0, 'status' => 'active', 'created_at' => now(), 'updated_at' => now(),
+                    ]);
+                    $added++;
+                }
+            }
+        }
+
+        return $added;
+    }
+
+    /** Um desafio novo inscreve as turmas das escolas que ja aceitaram convites do programa. */
+    public static function enrolAcceptedSchoolsInto(string $programId): void
+    {
+        DB::table('program_invitations')->where('program_id', $programId)->where('invite_type', 'school')->where('status', 'accepted')
+            ->whereNotNull('accepted_school_tenant_id')->pluck('accepted_school_tenant_id')
+            ->each(fn ($tenantId) => self::enrolSchool($tenantId, $programId));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private function resolve(Request $request, string $to): JsonResponse
@@ -150,6 +181,11 @@ class ProgramInvitationController extends Controller
                     : $update['accepted_household_id'] = $user->family_id;
             }
             DB::table('program_invitations')->where('id', $row->id)->update($update);
+
+            // Escola que aceita: as turmas ativas entram nos desafios em curso do programa
+            if ($to === 'accepted' && $row->invite_type === 'school' && $user->tenant_id) {
+                self::enrolSchool($user->tenant_id, $row->program_id);
+            }
 
             return response()->json(['status' => 'success', 'success' => true, 'data' => ['code' => $code, 'status' => $to]]);
         });

@@ -72,4 +72,26 @@ class Partner extends Model
     {
         return $this->morphOne(Wallet::class, 'walletable');
     }
+
+    /** Plano subscrito ainda em vigor (ou null). */
+    public function activePlan(): ?SubscriptionPlan
+    {
+        if (! $this->subscription_tier_id || ! $this->subscription_ends_at || ! \Carbon\Carbon::parse($this->subscription_ends_at)->isFuture()) {
+            return null;
+        }
+
+        return SubscriptionPlan::find($this->subscription_tier_id);
+    }
+
+    /** Limites efetivos: os do plano ativo ou, sem plano, os da configuracao. */
+    public function limits(): array
+    {
+        $plan = $this->activePlan();
+
+        return [
+            'plan' => $plan,
+            'max_programs' => (int) ($plan?->max_programs ?? config('partners.max_programs')),
+            'max_children' => (int) ($plan?->max_children ?? config('partners.max_children')),
+        ];
+    }
 }

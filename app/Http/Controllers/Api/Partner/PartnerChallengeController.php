@@ -139,6 +139,8 @@ class PartnerChallengeController extends Controller
             ]);
         });
 
+        ProgramInvitationController::enrolAcceptedSchoolsInto($challenge->program_id);
+
         return response()->json([
             'status'  => 'success',
             'message' => 'Desafio criado com sucesso e prémio cativado do orçamento do Programa.',

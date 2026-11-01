@@ -34,12 +34,17 @@ class PartnerStatusController extends Controller
         $partner = PartnerContext::resolve($request);
         $programs = PartnerProgram::where('partner_id', $partner->id);
 
+        // Limites do plano subscrito (se ativo); sem plano valem os da configuracao
+        $limits = $partner->limits();
+        $plan = $limits['plan'];
+
         return response()->json([
             'status' => 'success',
             'data' => [
-                'tier_name' => 'Parceiro',
-                'max_programs' => (int) config('partners.max_programs'),
-                'max_children' => (int) config('partners.max_children'),
+                'tier_name' => $plan?->name ?? 'Parceiro',
+                'tier_id' => $plan?->id,
+                'max_programs' => $limits['max_programs'],
+                'max_children' => $limits['max_children'],
                 'used_programs' => (clone $programs)->count(),
                 'used_children' => (int) (clone $programs)->sum('children_target'),
             ],

@@ -618,3 +618,14 @@ O `PartnerImpactService` era **100 % inventado** (alunos = `desafios × 45`, esc
 **Testes:** `PartnerModulesTest` (4 testes, 77 asserções); suite do back: 56 passam, 7 antigos falham (factories em falta).
 
 **Ainda em aberto:** `/partner/limits` continua a usar `config/partners.php` (não os limites do plano subscrito); `PartnerWallet` gera recibos PDF a partir do extrato local (sem faturas de carregamento na API); criar uma escola ("Nova Escola — Vincular polo") no painel não tem endpoint; o prémio não tem upload de comprovativo (só URL via API); aceitar um convite apenas regista o vínculo (ainda não inscreve automaticamente turmas/famílias nos desafios do programa).
+
+### 19.1 Pendentes da secção 19 — resolvidos (2026-11-04)
+
+| Item | Estado | O que foi feito |
+|---|---|---|
+| `/partner/limits` | **Feito** | `Partner::limits()` devolve os limites do plano subscrito em vigor (`max_programs` — nova coluna em `subscription_plans` —, `max_children`, nome do plano) e, sem plano ou expirado, os da configuração. `POST /partner/programs` passa a **aplicar** o limite de programas (422 `program_limit_reached`); antes o limite só era mostrado. |
+| "Nova Escola — Vincular polo" | **Redefinido** | Um parceiro não cria escolas (os tenants são geridos pelo admin) e `/partner/schools` não existia. O atalho passou a "Convidar Escola" e leva a Programas, onde o convite a escolas já funciona. |
+| Aceitar convite | **Feito (escolas)** | Quando uma escola aceita, as turmas ativas entram nos desafios ativos/agendados do programa; desafios criados depois inscrevem as turmas das escolas que já aceitaram. **Famílias:** os desafios são de turma, por isso aceitar continua a registar só o vínculo da família ao programa (não há nada onde inscrevê-las). |
+| Comprovativo do prémio | **Feito** | `POST /partner/prizes/{id}/proof` (PDF/JPG/PNG até 5 MB, isolado por parceiro, substitui o anterior) e botão "Anexar comprovativo" no detalhe do prémio. |
+
+**Testes:** `PartnerFollowupTest` (3 testes, 24 asserções).

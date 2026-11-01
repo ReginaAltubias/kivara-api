@@ -311,6 +311,7 @@ Route::prefix('v1')->group(function () {
             Route::post('prizes', [\App\Http\Controllers\Api\Partner\PartnerPrizeController::class, 'store'])->name('partner.prizes.store');
             Route::patch('prizes/{id}', [\App\Http\Controllers\Api\Partner\PartnerPrizeController::class, 'update'])->name('partner.prizes.update');
             Route::delete('prizes/{id}', [\App\Http\Controllers\Api\Partner\PartnerPrizeController::class, 'destroy'])->name('partner.prizes.destroy');
+            Route::post('prizes/{id}/proof', [\App\Http\Controllers\Api\Partner\PartnerPrizeController::class, 'uploadProof'])->name('partner.prizes.proof');
             Route::get('profile', [\App\Http\Controllers\Api\Partner\PartnerProfileController::class, 'show'])->name('partner.profile.show');
             Route::match(['put', 'patch'], 'profile', [\App\Http\Controllers\Api\Partner\PartnerProfileController::class, 'update'])->name('partner.profile.update');
             Route::post('profile/logo', [\App\Http\Controllers\Api\Partner\PartnerProfileController::class, 'logo'])->name('partner.profile.logo');
