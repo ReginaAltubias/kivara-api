@@ -19,10 +19,20 @@ class Mission extends Model
         'child_id',
         'deadline',
         'status',
+        'type',
+        'target_amount',
+        'kiva_points_reward',
+        'difficulty',
+        'mission_template_id',
+        'lesson_id',
+        'started_at',
+        'completed_at',
     ];
 
     protected $casts = [
         'deadline' => 'datetime',
+        'started_at' => 'datetime',
+        'completed_at' => 'datetime',
         'reward_amount' => 'decimal:2',
     ];
 

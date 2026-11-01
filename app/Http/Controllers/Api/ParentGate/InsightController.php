@@ -40,10 +40,11 @@ class InsightController extends Controller
         $validated = $request->validate([
             'child_id' => 'nullable|uuid|exists:child_profiles,id',
             'childId' => 'nullable|uuid|exists:child_profiles,id',
+            'childProfileId' => 'nullable|uuid|exists:child_profiles,id',
             'period' => 'nullable|in:weekly,monthly',
         ]);
 
-        $childId = $validated['child_id'] ?? $validated['childId'] ?? null;
+        $childId = $validated['child_id'] ?? $validated['childId'] ?? $request->input('childProfileId');
         $period = $validated['period'] ?? 'monthly';
         $startDate = $period === 'weekly' ? Carbon::now()->subDays(7) : Carbon::now()->subDays(30);
 
@@ -195,6 +196,15 @@ class InsightController extends Controller
                 'period' => $period,
             ]);
         }
+
+        // Formato do front: tipo 'attention' em vez de 'alert' e emoji por tipo.
+        $emoji = ['positive' => '🌟', 'attention' => '⚠️', 'suggestion' => '💡'];
+        $generatedInsights = array_map(function (array $i) use ($emoji) {
+            $i['type'] = $i['type'] === 'alert' ? 'attention' : $i['type'];
+            $i['emoji'] = $emoji[$i['type']] ?? '💡';
+
+            return $i;
+        }, $generatedInsights);
 
         return response()->json([
             'status' => 'success',

@@ -32,7 +32,11 @@ class TransactionController extends Controller
         $perPage = $request->query('per_page', 20);
         $page = $request->query('page', 1);
 
+        $user = $request->user();
+        $visibleWallets = Wallet::query()->when($user->role !== 'admin', fn ($q) => $q->ownedBy($user))->select('wallets.id');
+
         $transactions = LedgerEntry::query()
+            ->whereIn('wallet_id', $visibleWallets)
             ->when($request->filled('wallet_id'), fn($q) => $q->where('wallet_id', $request->wallet_id))
             ->when($request->filled('entry_type'), fn($q) => $q->where('entry_type', $request->entry_type))
             ->when($request->filled('direction'), fn($q) => $q->where('direction', $request->direction))
@@ -77,6 +81,17 @@ class TransactionController extends Controller
             'metadata' => 'nullable|array',
         ]);
 
+        $user = $request->user();
+        $isAdmin = $user->role === 'admin';
+
+        // Creditos manuais so o admin; o dono so regista debitos de compra/doacao/cofre na sua carteira.
+        if (!$isAdmin && ($request->direction !== 'debit' || !in_array($request->entry_type, ['purchase', 'donation', 'vault_deposit'], true))) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Operação não permitida: apenas débitos de compra, doação ou cofre.',
+            ], 403);
+        }
+
         $idempotencyKey = $request->header('Idempotency-Key');
         if (!$idempotencyKey) {
             return response()->json([
@@ -90,6 +105,11 @@ class TransactionController extends Controller
         // ====================================================================
         $existing = LedgerEntry::where('idempotency_key', $idempotencyKey)->first();
         if ($existing) {
+            $mine = $isAdmin || Wallet::ownedBy($user)->whereKey($existing->wallet_id)->exists();
+            if (!$mine) {
+                return response()->json(['status' => 'error', 'message' => 'Chave de idempotência já utilizada.'], 409);
+            }
+
             return response()->json([
                 'status' => 'success',
                 'data' => $existing,
@@ -100,8 +120,11 @@ class TransactionController extends Controller
         // ====================================================================
         // Pessimistic Locking: Bloqueia a wallet para evitar race conditions
         // ====================================================================
-        $wallet = DB::transaction(function () use ($request, $idempotencyKey) {
-            $wallet = Wallet::lockForUpdate()->findOrFail($request->wallet_id);
+        $wallet = DB::transaction(function () use ($request, $idempotencyKey, $user, $isAdmin) {
+            $wallet = Wallet::query()
+                ->when(!$isAdmin, fn ($q) => $q->ownedBy($user))
+                ->lockForUpdate()
+                ->findOrFail($request->wallet_id);
 
             // Validar se wallet está congelada
             if ($wallet->is_frozen) {
@@ -126,6 +149,9 @@ class TransactionController extends Controller
                 'description' => $request->description,
                 'metadata' => $request->metadata,
             ]);
+
+            $wallet->balance = round((float) $wallet->balance + ($request->direction === 'credit' ? 1 : -1) * (float) $request->amount, 2);
+            $wallet->save();
 
             return [
                 'entry' => $ledgerEntry,

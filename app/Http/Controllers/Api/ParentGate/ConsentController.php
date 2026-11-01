@@ -25,6 +25,8 @@ class ConsentController extends Controller
     )]
     public function index(Request $request, string $childProfileId): JsonResponse
     {
+        $this->ownedChild($request, $childProfileId);
+
         $consents = Consent::where('child_profile_id', $childProfileId)->get();
         return response()->json(['data' => $consents], 200);
     }
@@ -43,8 +45,10 @@ class ConsentController extends Controller
     )]
     public function update(Request $request, string $childProfileId): JsonResponse
     {
+        $this->ownedChild($request, $childProfileId);
+
         $request->validate([
-            'consent_type' => 'required|string',
+            'consent_type' => 'required|string|max:100',
             'is_granted' => 'required|boolean',
         ]);
 
@@ -54,5 +58,15 @@ class ConsentController extends Controller
         );
 
         return response()->json(['data' => $consent], 200);
+    }
+
+    /** A crianca tem de pertencer ao encarregado autenticado (admin: qualquer). */
+    private function ownedChild(Request $request, string $childProfileId): \App\Models\ChildProfile
+    {
+        $user = $request->user();
+
+        return \App\Models\ChildProfile::query()
+            ->when($user->role !== 'admin', fn ($q) => $q->where('parent_id', $user->id))
+            ->findOrFail($childProfileId);
     }
 }

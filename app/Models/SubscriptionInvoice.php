@@ -16,10 +16,18 @@ class SubscriptionInvoice extends Model
         'amount',
         'status',
         'pdf_url',
+        'tier_id',
+        'currency',
+        'billing_period',
+        'description',
+        'paid_at',
+        'payment_method',
+        'payment_reference',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'paid_at' => 'datetime',
     ];
 
     public function family(): BelongsTo

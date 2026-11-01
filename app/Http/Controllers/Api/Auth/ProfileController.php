@@ -31,16 +31,61 @@ class ProfileController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'data' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role,
-                'tenant_id' => $user->tenant_id,
-                'must_change_password' => (bool) $user->must_change_password,
-                'created_at' => $user->created_at,
-            ],
+            'data' => $this->present($user),
         ], 200);
+    }
+
+    /**
+     * PATCH /api/v1/auth/me — actualiza os dados pessoais do proprio utilizador.
+     * Papel, e-mail e inquilino nao se alteram por aqui.
+     */
+    public function update(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'name' => 'sometimes|string|min:2|max:255',
+            'phone' => ['sometimes', 'nullable', 'string', 'max:30', 'regex:/^[0-9+()\s-]{6,30}$/'],
+            'avatar' => 'sometimes|nullable|string|max:1500000',
+            'currency' => 'sometimes|nullable|string|size:3|alpha',
+            'country' => 'sometimes|nullable|string|max:100',
+            'gender' => 'sometimes|nullable|string|in:male,female,other,masculino,feminino,outro',
+            'language' => 'sometimes|nullable|string|in:pt,en,fr,es',
+        ]);
+
+        $currency = $data['currency'] ?? null;
+        unset($data['currency']);
+        $user->fill($data)->save();
+
+        // A moeda da familia segue o pais escolhido pelo encarregado (so o seu proprio inquilino familiar).
+        if ($currency && $user->tenant_id && $user->role !== 'admin') {
+            \App\Models\Tenant::where('id', $user->tenant_id)->where('tenant_type', 'family')
+                ->update(['currency' => strtoupper($currency)]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $this->present($user->fresh()),
+        ], 200);
+    }
+
+    private function present($user): array
+    {
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role,
+            'tenant_id' => $user->tenant_id,
+            'household_id' => $user->family_id,
+            'phone' => $user->phone,
+            'avatar' => $user->avatar,
+            'country' => $user->country,
+            'gender' => $user->gender,
+            'language' => $user->language,
+            'must_change_password' => (bool) $user->must_change_password,
+            'created_at' => $user->created_at,
+        ];
     }
 
     /**

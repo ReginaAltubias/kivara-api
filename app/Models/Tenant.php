@@ -20,6 +20,9 @@ class Tenant extends Model
         'domain',
         'description',
         'subscription_tier_id',
+        'subscription_period',
+        'subscription_ends_at',
+        'extra_children',
         'nif',
         'school_type',
         'education_level',
@@ -39,6 +42,7 @@ class Tenant extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'agreement' => 'array',
+        'subscription_ends_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

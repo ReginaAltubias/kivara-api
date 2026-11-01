@@ -29,6 +29,11 @@ class User extends Authenticatable
         'pairing_code',
         'is_active',
         'notification_settings',
+        'phone',
+        'avatar',
+        'country',
+        'gender',
+        'language',
     ];
 
     protected $hidden = [

@@ -534,3 +534,44 @@ Webhooks (X-SEC-3), rate limiting, CORS por ambiente, OpenAPI completo e tipos g
 **Testes:** `PartnerFlowTest` (3 testes, 82 asserções).
 
 **Ainda em aberto:** convites a programas (`/partner/programs/{id}/invite`, `/partner/invitations/*`) e `PartnerRewards`, `PartnerReports` (séries e distribuição geográfica fictícias), `PartnerSubscription` (faturas fictícias), `PartnerDashboard`; `PartnerProfile` chama `PATCH /profiles/{id}` e `/tenants/{id}`; o orçamento alocado de um programa não é editável (só concluir/eliminar); `ProgramInviteDialog` exige `partnerTenantId` (erro de tipos antigo).
+
+## 16. Encarregado (2026-11-01)
+
+| ID | Estado | O que foi feito |
+|---|---|---|
+| Transações | **Corrigido (grave)** | `GET/POST /finance/transactions` aceitava qualquer `wallet_id`: um encarregado via o extrato e **criava créditos ilimitados** em carteiras de outras famílias. Passa a existir `Wallet::ownedBy` (carteira do utilizador + dos seus filhos); só o admin cria créditos/ajustes, o dono regista apenas débitos `purchase\|donation\|vault_deposit`; chave de idempotência de outra família → 409. |
+| Posse dos filhos | **Corrigido (grave)** | `children/{id}/summary`, `consents/{id}` (+`/update`), `parents/level-up-requests/{id}` e `POST /missions` não validavam o dono: qualquer encarregado lia/alterava dados de filhos alheios e criava missões em filhos alheios. Agora 404 fora da própria família; `summary` devolve contagens reais (lições, missões, XP, ofensiva) em vez de zeros. |
+| Escola do filho | **Corrigido** | `POST /children` aceitava `school_tenant_id` arbitrário (associar o filho a qualquer escola); só o admin; a ligação à escola faz-se pelo código de convite da turma. |
+| Consentimentos | **Feito** | `GET/POST /parent/consent`, `GET/PUT /parent/consent/{id}`, `POST /parent/consent/{id}/revoke` (antes 404; a página mostrava sempre 0). Migration `consents`: `document_version`, `method`, `consent_data`, `consented_at`, `expires_at`, `revoked_at/by`, `revocation_reason`. Estados `granted\|revoked\|expired`; conceder de novo reativa o mesmo registo. |
+| Ofensivas | **Feito** | `GET /parent/streaks` (antes `/streaks?profiles=` → 404 engolido): ofensiva atual, recorde e dias ativos por filho. |
+| Perfil | **Feito** | `PATCH /auth/me` (nome, telefone, avatar, país, género, idioma; papel/e-mail/tenant imutáveis) + colunas em `users`; a moeda da família segue o país (`currency`, só o tenant familiar do próprio). O front chamava `PATCH /profiles/{id}` e `PATCH /admin/tenants/{id}` (403 para encarregado). |
+| Exportação | **Feito** | `POST /parent/children/{id}/export` (perfil, consentimentos, movimentos, ofensiva, tarefas); o front chamava `/admin/export-user-data` (403). |
+| Carteira (front) | **Feito** | `ParentWallet` deixou de usar saldo local (65 000), extrato fictício, indicadores fixos, telefone pré-preenchido, referência bancária estática e "confirmação" simulada: lê `/finance/wallet/balance` e `/history`, envia `POST /finance/wallet/top-up` (Multicaixa Express) e só mostra sucesso quando o saldo sobe após o webhook. |
+| Front (outros) | **Feito** | `use-parent-consents` (parâmetros de paginação eram ignorados), `ParentConsent` (revogação enviava `consentId` em vez de `id`; exportação usa o endpoint do encarregado), `ParentProfile`, `ParentChildrenStreaks`. |
+
+**Verificado no browser:** login encarregado → carteira a 0 Kz → carregar 25 000 Kz (intent `pending` na BD) → webhook assinado → saldo 25 000 Kz / 250 000 KVC e aviso de sucesso → página de consentimentos mostra o registo real → conceder + revogar pela interface (BD: `is_granted=0`, `revoked_at`, motivo) → `PATCH /auth/me`, `/parent/streaks` e exportação respondem com dados reais.
+
+**Testes:** `ParentSecurityTest` (3 testes) e `ParentFamilyTest` (3 testes); suite: 43 passam, 7 antigos falham (factories em falta).
+
+**Ainda em aberto:** exceções de orçamento, comentários nos cofres de sonhos e resumo semanal (sem endpoint); `/parent/subscription`; `ParentChildren` com erros de tipos antigos (`addExtraChild`); 404 do dashboard em `/stats/emission`, `/wallets`, `/onboarding/steps`, `/streaks/activity`; `use-parent-real-wallet` (carregamento por comprovativo via `/wallets/transactions`) continua sem back; depósito por referência bancária indisponível para encarregados (só Multicaixa Express).
+
+## 17. Encarregado — todos os módulos do menu ligados à API (2026-11-01)
+
+Auditoria: 28 chamadas do portal do encarregado não tinham rota no back, e **9 páginas mostravam dados fictícios quando a API devolvia vazio** (missões "Demo Aprendiz", atividade, recompensas, sonhos, faturas, insights, estatísticas de aprendizagem), o que fazia parecer que estavam ligadas.
+
+| Módulo | Estado | O que foi feito |
+|---|---|---|
+| Painel | **Feito** | `GET /auth/me` passa a devolver `household_id` (sem ele o front desativava transações, guardiões e resumo); `GET /wallets` (+`/{id}/balance`, `/{id}/transactions`, em KVC), `GET /stats/emission` (limite mensal `KIVARA_EMISSION_LIMIT_KVC`), `POST /weekly-summary`. Saldo rotulado KVC (estava "AOA"). |
+| Missões | **Feito (grave)** | A página só mostrava um aviso de sucesso e **nunca chamava a API**. Agora cria, inicia, conclui e elimina. Back: `PATCH/DELETE /missions/{id}`, `POST /missions/{id}/start`, `…/complete` (emite a recompensa KVC para a carteira da criança no ledger, soma XP, respeita o limite mensal de emissão, sem pagamento duplo), `POST /missions/from-template`, `GET /mission-templates`; migration `missions` (tipo, meta, XP, datas). |
+| Atividade / Relatórios | **Feito** | `GET /households/{id}/transactions` (paginado, 404 fora da família); relatórios usam `/parent/children/{id}/summary` em vez de números inventados; o filtro por criança nunca funcionava (`childProfileId`). |
+| Recompensas, Sonhos | **Feito** | Removidos os fallbacks fictícios. Comentários nos cofres: `GET/POST/DELETE /dream-vaults/{id}/comments`. Exceções de orçamento: `GET/POST /wallets/budget-exceptions`, `PATCH …/{id}` (aprovar debita a carteira da criança). |
+| Insights | **Feito** | Removidos os textos fabricados por nome de criança ("completou 3 lições…"); `POST /insights/generate` aceita `childProfileId`, devolve `emoji` e o tipo `attention`. |
+| Subscrição | **Feito (grave)** | A página simulava o pagamento (confetti + "renovada" sem chamar nada), com preços fixos (3 500/35 000 Kz) e expiração inventada ("15 de Outubro"). Agora: `GET /subscription` (plano real ou Free), `POST /subscription/subscribe` **debita a carteira do encarregado** e cria fatura paga (saldo insuficiente → 422, nada muda), `cancel`, `add-extra-child` (vaga extra paga), faturas reais; o limite de crianças do plano passa a ser aplicado em `POST /children` (`child_limit_reached`). Migration: `tenants` (período, fim, vagas extra), `subscription_plans.extra_child_price`, campos das faturas. |
+| Crianças / Guardiões | **Feito** | `POST /households`, `GET /households/{id}/guardians`, `POST …/invite` (cria 2.º encarregado com credenciais por e-mail; só o principal), `DELETE …/guardians/{id}`. `ParentChildren` chamava `addExtraChild()` num hook que devolvia uma mutação (rebentava ao clicar). |
+| Outros | **Feito** | `POST /streaks/activity` e `GET /onboarding/steps` (404 em todas as páginas). `TransactionController` passa a manter o saldo materializado. |
+
+**Verificado no browser (BD sqlite local):** criar missão pela interface → iniciar → concluir: carteira da criança +5 Kz (50 KVC) e XP 40→55 com lançamento `mission_reward`; subscrição anual pela interface: carteira 25 000→20 000 Kz, fatura paga `INV-…`, tenant com plano e fim a 01/11/2027, página passa a "Plano Familiar Premium"; atividade e painel mostram os movimentos reais.
+
+**Testes:** `ParentModulesTest` (4 testes, 90 asserções); suite: 47 passam, 7 antigos falham (factories em falta).
+
+**Ainda em aberto:** `ParentSupport` tem contactos estáticos (`+351 900 000 000`, a substituir pelos reais; sem endpoint); `ParentChildren` mantém erros de tipos antigos (`CoinDisplay className`, `t()` com parâmetros); o preço da criança extra é 0 até o admin o definir no plano (campo ainda não exposto em Admin → Subscrição); `use-parent-real-wallet` (comprovativo) sem back; páginas mostram o estado vazio durante o carregamento (já não há dados falsos a mascarar a espera); notificações/`/profiles/{id}` de outras personas.

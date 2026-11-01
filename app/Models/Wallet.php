@@ -32,6 +32,18 @@ class Wallet extends Model
     ];
 
     /**
+     * Carteiras a que o utilizador tem acesso: as suas e as dos seus filhos.
+     */
+    public function scopeOwnedBy($query, User $user)
+    {
+        return $query->where(function ($w) use ($user) {
+            $w->where(fn ($x) => $x->where('walletable_type', User::class)->where('walletable_id', $user->id))
+              ->orWhere(fn ($x) => $x->where('walletable_type', ChildProfile::class)
+                  ->whereIn('walletable_id', ChildProfile::where('parent_id', $user->id)->select('id')));
+        });
+    }
+
+    /**
      * Relação: Pertence a Tenant
      */
     public function tenant(): BelongsTo

@@ -20,6 +20,11 @@ use App\Http\Controllers\Api\Auth\ActivationController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\ProfileController;
+use App\Http\Controllers\Api\ParentGate\BudgetExceptionController;
+use App\Http\Controllers\Api\ParentGate\DreamCommentController;
+use App\Http\Controllers\Api\ParentGate\FamilyController;
+use App\Http\Controllers\Api\ParentGate\ParentConsentController;
+use App\Http\Controllers\Api\ParentGate\ParentFamilyController;
 use App\Http\Controllers\Api\Family\FamilyPairingController;
 use App\Http\Controllers\Api\Finance\TransactionController;
 use App\Http\Controllers\Api\Finance\AllowanceController;
@@ -105,6 +110,7 @@ Route::prefix('v1')->group(function () {
         Route::prefix('auth')->group(function () {
             Route::post('logout', [LogoutController::class, 'destroy'])->name('auth.logout');
             Route::get('me', [ProfileController::class, 'show'])->name('auth.profile');
+            Route::match(['put', 'patch'], 'me', [ProfileController::class, 'update'])->name('auth.profile.update');
             Route::post('change-password', [ProfileController::class, 'changePassword'])->name('auth.change-password');
             Route::post('refresh', function (\Illuminate\Http\Request $request) {
                 $user = $request->user();
@@ -418,6 +424,13 @@ Route::prefix('v1')->group(function () {
         // ====================================================================
         Route::prefix('parent')->group(function () {
             Route::get('children/{id}/summary', [ChildProfileController::class, 'summary'])->name('parent.children.summary');
+            Route::post('children/{id}/export', [ParentFamilyController::class, 'export'])->name('parent.children.export');
+            Route::get('streaks', [ParentFamilyController::class, 'streaks'])->name('parent.streaks');
+            Route::get('consent', [ParentConsentController::class, 'index'])->name('parent.consent.index');
+            Route::post('consent', [ParentConsentController::class, 'store'])->name('parent.consent.store');
+            Route::get('consent/{id}', [ParentConsentController::class, 'show'])->name('parent.consent.show');
+            Route::put('consent/{id}', [ParentConsentController::class, 'update'])->name('parent.consent.update');
+            Route::post('consent/{id}/revoke', [ParentConsentController::class, 'revoke'])->name('parent.consent.revoke');
             Route::get('tasks', [TaskController::class, 'index'])->name('parent.tasks.index');
             Route::post('tasks', [TaskController::class, 'store'])->name('parent.tasks.store');
             Route::post('tasks/{id}/approve', [TaskController::class, 'approve'])->name('parent.tasks.approve');
@@ -485,6 +498,24 @@ Route::prefix('v1')->group(function () {
             Route::post('{id}/upgrade-auth', [ChildProfileController::class, 'upgradeAuth'])->name('children.upgrade-auth');
         });
 
+        // Carteiras da familia (em KVC), agregados e guardioes
+        Route::get('wallets', [FamilyController::class, 'wallets'])->name('family.wallets');
+        Route::get('wallets/budget-exceptions', [BudgetExceptionController::class, 'index'])->name('budget-exceptions.index');
+        Route::post('wallets/budget-exceptions', [BudgetExceptionController::class, 'store'])->name('budget-exceptions.store');
+        Route::patch('wallets/budget-exceptions/{id}', [BudgetExceptionController::class, 'resolve'])->name('budget-exceptions.resolve');
+        Route::get('wallets/{id}/balance', [FamilyController::class, 'walletBalance'])->name('family.wallets.balance');
+        Route::get('wallets/{id}/transactions', [FamilyController::class, 'walletTransactions'])->name('family.wallets.transactions');
+        Route::get('stats/emission', [FamilyController::class, 'emission'])->name('family.emission');
+        Route::post('weekly-summary', [FamilyController::class, 'weeklySummary'])->name('family.weekly-summary');
+        Route::post('households', [FamilyController::class, 'storeHousehold'])->name('households.store');
+        Route::get('households/{id}/transactions', [FamilyController::class, 'transactions'])->name('households.transactions');
+        Route::get('households/{id}/guardians', [FamilyController::class, 'guardians'])->name('households.guardians');
+        Route::post('households/{id}/invite', [FamilyController::class, 'invite'])->name('households.invite');
+        Route::delete('households/{id}/guardians/{guardianId}', [FamilyController::class, 'removeGuardian'])->name('households.guardians.remove');
+        Route::get('dream-vaults/{id}/comments', [DreamCommentController::class, 'index'])->name('dream-comments.index');
+        Route::post('dream-vaults/{id}/comments', [DreamCommentController::class, 'store'])->name('dream-comments.store');
+        Route::delete('dream-vaults/{id}/comments/{commentId}', [DreamCommentController::class, 'destroy'])->name('dream-comments.destroy');
+
         Route::prefix('allowances')->group(function () {
             Route::post('{id}/send-now', [AllowanceController::class, 'sendNow'])->name('allowances.send-now');
         });
@@ -500,9 +531,16 @@ Route::prefix('v1')->group(function () {
             Route::post('{id}/reject', [TaskController::class, 'reject'])->name('tasks.reject');
         });
 
+        Route::post('streaks/activity', [StreakController::class, 'activity'])->name('streaks.activity');
+        Route::get('mission-templates', [MissionController::class, 'templates'])->name('mission-templates.index');
         Route::prefix('missions')->group(function () {
             Route::get('/', [MissionController::class, 'index'])->name('missions.index');
             Route::post('/', [MissionController::class, 'store'])->name('missions.store');
+            Route::post('from-template', [MissionController::class, 'fromTemplate'])->name('missions.from-template');
+            Route::match(['put', 'patch'], '{id}', [MissionController::class, 'update'])->name('missions.update');
+            Route::delete('{id}', [MissionController::class, 'destroy'])->name('missions.destroy');
+            Route::post('{id}/start', [MissionController::class, 'start'])->name('missions.start');
+            Route::post('{id}/complete', [MissionController::class, 'complete'])->name('missions.complete');
         });
 
         Route::prefix('rewards')->group(function () {
@@ -540,6 +578,8 @@ Route::prefix('v1')->group(function () {
             Route::post('generate', [InsightController::class, 'generate'])->name('insights.generate');
         });
 
+        Route::get('subscription', [SubscriptionController::class, 'current'])->name('subscription.current');
+        Route::post('subscription/add-extra-child', [SubscriptionController::class, 'addExtraChild'])->name('subscription.add-extra-child');
         Route::prefix('subscription')->group(function () {
             Route::get('tiers', [SubscriptionController::class, 'tiers'])->name('subscription.tiers');
             Route::post('subscribe', [SubscriptionController::class, 'subscribe'])->name('subscription.subscribe');

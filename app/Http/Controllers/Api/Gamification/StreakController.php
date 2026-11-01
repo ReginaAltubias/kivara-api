@@ -12,6 +12,14 @@ use App\Http\Controllers\Controller;
 
 class StreakController extends Controller
 {
+    /** POST /streaks/activity — regista a abertura da app (so conta para perfis de crianca). */
+    public function activity(Request $request): JsonResponse
+    {
+        $request->merge(['activity_type' => 'app_open']);
+
+        return $this->record($request);
+    }
+
         #[OA\Post(
         path: "/api/v1/gamification/streaks/record",
         summary: "Gamification Streaks Record (POST)",

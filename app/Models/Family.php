@@ -15,6 +15,7 @@ class Family extends Model
         'tenant_id',
         'name',
         'currency',
+        'invite_code',
     ];
 
     protected $casts = [

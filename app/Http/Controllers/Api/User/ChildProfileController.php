@@ -66,6 +66,16 @@ class ChildProfileController extends Controller
     )]
     public function store(Request $request): JsonResponse
     {
+        // Limite de criancas do plano (mais as vagas extra compradas); sem plano nao ha limite.
+        $owner = $request->user();
+        if ($owner->role === 'parent' && $owner->tenant_id) {
+            $tenant = \App\Models\Tenant::find($owner->tenant_id);
+            $max = $tenant?->subscription_tier_id ? \App\Models\SubscriptionPlan::find($tenant->subscription_tier_id)?->max_children : null;
+            if ($max !== null && ChildProfile::where('parent_id', $owner->id)->count() >= $max + (int) $tenant->extra_children) {
+                return response()->json(['status' => 'error', 'code' => 'child_limit_reached', 'message' => 'Atingiu o limite de crianças do seu plano. Adicione uma criança extra ou mude de plano.'], 422);
+            }
+        }
+
         $validated = $request->validate([
             'display_name' => 'required|string|max:255',
             'nickname' => 'nullable|string|max:100',
@@ -84,6 +94,10 @@ class ChildProfileController extends Controller
         ]);
 
         $user = $request->user();
+
+        if (!empty($validated['school_tenant_id']) && $user->role !== 'admin') {
+            abort(422, 'A associação a uma escola faz-se pelo código de convite da turma.');
+        }
 
         $tenantId = $validated['school_tenant_id'] 
             ?? $user->tenant_id 
@@ -249,30 +263,24 @@ class ChildProfileController extends Controller
     )]
     public function summary(Request $request, string $id): JsonResponse
     {
-        $child = ChildProfile::findOrFail($id);
+        $user = $request->user();
+        $child = ChildProfile::query()
+            ->when($user->role !== 'admin', fn ($q) => $q->where('parent_id', $user->id))
+            ->findOrFail($id);
 
-        $lessonsCompleted = \App\Models\UserProgress::where('child_profile_id', $child->id)
-            ->where('completed', true)
-            ->count();
-        $lessonsCompleted = $lessonsCompleted > 0 ? $lessonsCompleted : 12;
-
-        $lessonsTotal = \App\Models\Lesson::count();
-        $lessonsTotal = $lessonsTotal > 0 ? $lessonsTotal : 15;
-
-        $missionsCompleted = \App\Models\UserProgress::where('child_profile_id', $child->id)
-            ->where('status', 'validada')
-            ->count();
-        $missionsCompleted = $missionsCompleted > 0 ? $missionsCompleted : 10;
+        $progress = \App\Models\UserProgress::where('child_profile_id', $child->id);
+        $missions = \App\Models\Mission::where('child_id', $child->id);
 
         return response()->json([
             'data' => [
-                'lessons_completed' => $lessonsCompleted,
-                'lessons_total' => $lessonsTotal,
-                'missions_completed' => $missionsCompleted,
-                'missions_in_progress' => 2,
-                'missions_overdue' => 1,
-                'kiva_points' => (int) ($child->total_xp ?? 650),
-                'streak_days' => 7,
+                'lessons_completed' => (clone $progress)->where('completed', true)->count(),
+                'lessons_total' => \App\Models\Lesson::count(),
+                'missions_completed' => (clone $missions)->whereIn('status', ['completed', 'approved', 'validada'])->count(),
+                'missions_in_progress' => (clone $missions)->whereIn('status', ['active', 'in_progress', 'pending'])->count(),
+                'missions_overdue' => (clone $missions)->whereIn('status', ['active', 'in_progress', 'pending'])
+                    ->whereNotNull('deadline')->where('deadline', '<', now())->count(),
+                'kiva_points' => (int) ($child->total_xp ?? 0),
+                'streak_days' => (int) (\App\Models\Streak::where('child_profile_id', $child->id)->value('current_streak') ?? 0),
             ],
         ], 200);
     }

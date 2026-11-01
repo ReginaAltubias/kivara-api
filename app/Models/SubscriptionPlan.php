@@ -17,6 +17,7 @@ class SubscriptionPlan extends Model
         'currency',
         'max_children',
         'max_classrooms',
+        'extra_child_price',
         'features',
         'is_active',
     ];

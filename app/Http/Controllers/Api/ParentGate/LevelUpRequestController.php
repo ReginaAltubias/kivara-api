@@ -41,7 +41,7 @@ class LevelUpRequestController extends Controller
     )]
     public function show(Request $request, string $id): JsonResponse
     {
-        $request_data = LevelUpRequest::findOrFail($id);
+        $request_data = LevelUpRequest::where('parent_id', $request->user()->id)->findOrFail($id);
         return response()->json(['status' => 'success', 'data' => $request_data], 200);
     }
 
