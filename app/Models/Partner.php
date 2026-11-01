@@ -16,10 +16,22 @@ class Partner extends Model
         'logo_path',
         'contact_email',
         'is_active',
+        'status',
+        'nif',
+        'sector',
+        'phone',
+        'country',
+        'city',
+        'address',
+        'director_name',
+        'rejection_reason',
+        'reviewed_at',
+        'reviewed_by',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'reviewed_at' => 'datetime',
     ];
 
     public function users(): HasMany

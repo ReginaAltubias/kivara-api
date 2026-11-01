@@ -512,3 +512,25 @@ Webhooks (X-SEC-3), rate limiting, CORS por ambiente, OpenAPI completo e tipos g
 **Testes:** `WebhookSecurityTest` (4), `TeacherFlowTest` (6). Total back: 34 testes novos/atualizados desde a secção 11.
 
 **Ainda em aberto:** `school/teachers` `updatePermissions` continua a ser um *stub* (devolve sucesso sem gravar); desafios de parceiros (`/partner/*`) não têm isolamento revisto; aprovação de parceiros no registo; X-SEC-6 (modelo de sessão), X-API-1/4/6/7, BE-FIX-7/8/9, BE-TPL, BE-INV; o ecrã de ativação do onboarding do professor chama `/onboarding/steps`, `/streaks/activity` e `/challenges/collective` (404 na API); `TeacherSchoolProfile` usa `POST /school/teachers` e `PATCH …/deactivate`.
+
+---
+
+## 15. Parceiros (2026-10-29)
+
+| ID | Estado | O que foi feito |
+|---|---|---|
+| Isolamento | **Corrigido (grave)** | Os 5 controllers de parceiro resolviam o parceiro com `Partner::first()` quando o utilizador não tinha `partner_id`: qualquer parceiro novo veria a carteira, os programas e os desafios do **primeiro parceiro** (e o admin criava um "Banco Parceiro KIVARA"). Passa a existir `PartnerContext::resolve`: o parceiro do utilizador; contas antigas sem parceiro recebem um próprio e aprovado; o admin tem de indicar `partner_id`. |
+| Registo | **Feito** | `POST /auth/register` com `role=partner` cria a conta inativa + `Partner` em `pending` (NIF, setor, cidade, direção…) + OTP. |
+| Aprovação | **Feito** | Migration `partners`: `status` (`pending\|approved\|rejected`, existentes = `approved`), dados institucionais, `rejection_reason`, `reviewed_at/by`. Middleware `partner.approved`: enquanto não aprovado → 403 `partner_pending_approval`/`partner_rejected`; suspenso → `partner_suspended`. `GET /partner/status` (acessível antes da aprovação). |
+| Admin | **Feito** | `GET /admin/partners`, `GET/PATCH/DELETE /admin/partners/{id}` (DELETE → 409 se tiver programas/desafios), `POST …/approve`, `POST …/reject {reason}` (email `PartnerDecisionMail` nos dois casos, revoga sessões ao rejeitar), `PATCH …/active` (suspender/reativar). Front: nova página **Admin → Parceiros** (`/admin/partners`). |
+| Carregamentos | **Corrigido (grave)** | `ledger_entries.entry_type` era um enum sem `top_up`: **todos os carregamentos (parceiros e encarregados) falhavam ao liquidar**. Migration passa a coluna a texto. |
+| Programas | **Feito** | `DELETE /partner/programs/{id}` (409 se tiver desafios; devolve o orçamento à carteira); concluir (`status=completed`) devolve o orçamento por cativar; campos `program_type`, `children_target`, `starts_at`, `ends_at`. |
+| Desafios | **Feito** | Estados `draft\|active\|scheduled\|completed\|cancelled`; desafio cancelado liberta o prémio cativado; `PATCH …/status`; `GET …/participations` (turmas inscritas e progresso, sem dados pessoais). |
+| Limites | **Feito** | `GET /partner/limits` (antes 404 e o front usava 2 programas / 50 crianças): `config/partners.php` (`PARTNER_MAX_PROGRAMS`, `PARTNER_MAX_CHILDREN`). |
+| Front | **Feito** | `use-partner-data` com adaptadores API ↔ front (já não tenta `/partner-programs`). Removidos os 3 programas fictícios de `PartnerPrograms`. `PartnerWallet` deixou de usar saldo local (150 000), extrato fictício e "confirmação" simulada no browser: lê `/partner/wallet`, a referência bancária é gerada pela API e o saldo só sobe quando o webhook confirma. `PartnerApprovalGate` mostra "Candidatura em análise / não aprovada / conta suspensa". `PartnerRegister` já não mostra sucesso quando a API falha e leva ao ecrã de ativação por código. |
+
+**Verificado no browser:** registo → ativação por OTP → login bloqueado em "Candidatura em análise" → admin aprova (email enviado) → carteira a 0 → referência gerada → webhook sem assinatura/com assinatura errada = 401, correto = +1 000 000 KVC → programa 600 000 KVC (carteira 400 000) → desafio 75 000 → concluir/eliminar → eliminar programa devolve 600 000.
+
+**Testes:** `PartnerFlowTest` (3 testes, 82 asserções).
+
+**Ainda em aberto:** convites a programas (`/partner/programs/{id}/invite`, `/partner/invitations/*`) e `PartnerRewards`, `PartnerReports` (séries e distribuição geográfica fictícias), `PartnerSubscription` (faturas fictícias), `PartnerDashboard`; `PartnerProfile` chama `PATCH /profiles/{id}` e `/tenants/{id}`; o orçamento alocado de um programa não é editável (só concluir/eliminar); `ProgramInviteDialog` exige `partnerTenantId` (erro de tipos antigo).

@@ -285,8 +285,13 @@ Route::prefix('v1')->group(function () {
         // ====================================================================
         // PARTNER (SPONSOR) DASHBOARD, FINANCIAMENTO B2B, PROGRAMAS & DESAFIOS
         // ====================================================================
-        Route::prefix('partner')->middleware('user.role:partner|admin')->group(function () {
+        // Estado da candidatura (acessivel mesmo antes da aprovacao)
+        Route::get('partner/status', [\App\Http\Controllers\Api\Partner\PartnerStatusController::class, 'show'])
+            ->middleware('user.role:partner|admin')->name('partner.status');
+
+        Route::prefix('partner')->middleware(['user.role:partner|admin', 'partner.approved'])->group(function () {
             Route::get('dashboard', [PartnerDashboardController::class, 'index'])->name('partner.dashboard');
+            Route::get('limits', [\App\Http\Controllers\Api\Partner\PartnerStatusController::class, 'limits'])->name('partner.limits');
             Route::get('wallet', [PartnerWalletController::class, 'show'])->name('partner.wallet.show');
             Route::post('wallet/top-up', [PartnerWalletController::class, 'topUp'])->name('partner.wallet.top-up');
 
@@ -296,6 +301,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/', [PartnerProgramController::class, 'store'])->name('partner.programs.store');
                 Route::get('{id}', [PartnerProgramController::class, 'show'])->name('partner.programs.show');
                 Route::patch('{id}', [PartnerProgramController::class, 'update'])->name('partner.programs.update');
+                Route::delete('{id}', [PartnerProgramController::class, 'destroy'])->name('partner.programs.destroy');
             });
 
             // Desafios Institucionais criados pelo Parceiro
@@ -303,6 +309,8 @@ Route::prefix('v1')->group(function () {
                 Route::get('/', [PartnerChallengeController::class, 'index'])->name('partner.challenges.index');
                 Route::post('/', [PartnerChallengeController::class, 'store'])->name('partner.challenges.store');
                 Route::get('{id}', [PartnerChallengeController::class, 'show'])->name('partner.challenges.show');
+                Route::patch('{id}/status', [PartnerChallengeController::class, 'setStatus'])->name('partner.challenges.status');
+                Route::get('{id}/participations', [PartnerChallengeController::class, 'participations'])->name('partner.challenges.participations');
                 Route::patch('{id}', [PartnerChallengeController::class, 'update'])->name('partner.challenges.update');
                 Route::delete('{id}', [PartnerChallengeController::class, 'destroy'])->name('partner.challenges.destroy');
             });
@@ -592,6 +600,12 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('currencies', AdminCurrencyController::class)->parameters(['currencies' => 'code']);
             Route::apiResource('exchange-rates', AdminExchangeRateController::class)->parameters(['exchange-rates' => 'id']);
             Route::apiResource('regional-prices', AdminRegionalPriceController::class)->parameters(['regional-prices' => 'id'])->except(['show']);
+
+            // Parceiros (aprovacao e gestao)
+            Route::post('partners/{id}/approve', [\App\Http\Controllers\Api\Admin\AdminPartnerController::class, 'approve'])->name('admin.partners.approve');
+            Route::post('partners/{id}/reject', [\App\Http\Controllers\Api\Admin\AdminPartnerController::class, 'reject'])->name('admin.partners.reject');
+            Route::patch('partners/{id}/active', [\App\Http\Controllers\Api\Admin\AdminPartnerController::class, 'setActive'])->name('admin.partners.active');
+            Route::apiResource('partners', \App\Http\Controllers\Api\Admin\AdminPartnerController::class)->parameters(['partners' => 'id'])->except(['store']);
 
             // Utilizadores
             Route::prefix('users')->group(function () {

@@ -49,6 +49,10 @@ class PartnerProgramController extends Controller
                     'remaining_budget' => $p->remainingBudget(),
                     'status'           => $p->status,
                     'challenges_count' => (int) $p->challenges_count,
+                    'program_type'     => $p->program_type,
+                    'children_target'  => (int) $p->children_target,
+                    'starts_at'        => $p->starts_at?->toISOString(),
+                    'ends_at'          => $p->ends_at?->toISOString(),
                     'created_at'       => $p->created_at?->toISOString(),
                 ];
             });
@@ -84,6 +88,10 @@ class PartnerProgramController extends Controller
             'title'            => 'required|string|max:255',
             'description'      => 'nullable|string|max:1000',
             'allocated_budget' => 'required|integer|min:0',
+            'program_type'     => 'nullable|in:school,family',
+            'children_target'  => 'nullable|integer|min:0',
+            'starts_at'        => 'nullable|date',
+            'ends_at'          => 'nullable|date|after_or_equal:starts_at',
         ]);
 
         $allocatedBudget = (int) $validated['allocated_budget'];
@@ -112,6 +120,10 @@ class PartnerProgramController extends Controller
                     'description'      => $validated['description'] ?? null,
                     'allocated_budget' => $allocatedBudget,
                     'status'           => 'active',
+                    'program_type'     => $validated['program_type'] ?? 'school',
+                    'children_target'  => $validated['children_target'] ?? 0,
+                    'starts_at'        => $validated['starts_at'] ?? now(),
+                    'ends_at'          => $validated['ends_at'] ?? null,
                 ]);
 
                 // Registar saída da carteira geral para o programa
@@ -138,6 +150,10 @@ class PartnerProgramController extends Controller
                 'description'      => $validated['description'] ?? null,
                 'allocated_budget' => 0,
                 'status'           => 'active',
+                'program_type'     => $validated['program_type'] ?? 'school',
+                'children_target'  => $validated['children_target'] ?? 0,
+                'starts_at'        => $validated['starts_at'] ?? now(),
+                'ends_at'          => $validated['ends_at'] ?? null,
             ]);
         });
 
@@ -152,6 +168,10 @@ class PartnerProgramController extends Controller
                 'committed_budget' => $program->committedBudget(),
                 'remaining_budget' => $program->remainingBudget(),
                 'status'           => $program->status,
+                'program_type'     => $program->program_type,
+                'children_target'  => (int) $program->children_target,
+                'starts_at'        => $program->starts_at?->toISOString(),
+                'ends_at'          => $program->ends_at?->toISOString(),
                 'created_at'       => $program->created_at?->toISOString(),
             ],
         ], 201);
@@ -190,6 +210,10 @@ class PartnerProgramController extends Controller
                 'remaining_budget' => $program->remainingBudget(),
                 'status'           => $program->status,
                 'challenges'       => $program->challenges,
+                'program_type'     => $program->program_type,
+                'children_target'  => (int) $program->children_target,
+                'starts_at'        => $program->starts_at?->toISOString(),
+                'ends_at'          => $program->ends_at?->toISOString(),
                 'created_at'       => $program->created_at?->toISOString(),
             ],
         ], 200);
@@ -219,41 +243,82 @@ class PartnerProgramController extends Controller
             'title'       => 'sometimes|required|string|max:255',
             'description' => 'nullable|string|max:1000',
             'status'      => 'nullable|string|in:active,completed',
+            'program_type'    => 'nullable|in:school,family',
+            'children_target' => 'nullable|integer|min:0',
+            'starts_at'       => 'nullable|date',
+            'ends_at'         => 'nullable|date',
         ]);
 
-        $program->update($validated);
+        DB::transaction(function () use ($program, $validated, $partner) {
+            // Ao concluir, o orcamento ainda nao cativado volta para a carteira do parceiro.
+            if (($validated['status'] ?? null) === 'completed' && $program->status === 'active') {
+                $remaining = $program->remainingBudget();
+                if ($remaining > 0) {
+                    $this->refundToWallet($partner, $remaining, "prog_release:{$program->id}", "Libertação de orçamento do Programa: {$program->title}", $program->id);
+                    $validated['allocated_budget'] = $program->allocated_budget - $remaining;
+                }
+            }
+
+            $program->update($validated);
+        });
 
         return response()->json([
             'status'  => 'success',
             'message' => 'Programa atualizado com sucesso.',
-            'data'    => $program,
+            'data'    => $program->fresh(),
         ], 200);
     }
 
     /**
      * Helper para identificar o parceiro autenticado
      */
+    /** DELETE /api/v1/partner/programs/{id} — so sem desafios; devolve o orcamento a carteira. */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $partner = $this->getAuthenticatedPartner($request);
+        $program = PartnerProgram::where('partner_id', $partner->id)->findOrFail($id);
+
+        if ($program->challenges()->exists()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'O programa tem desafios. Cancele ou elimine os desafios, ou conclua o programa.',
+            ], 409);
+        }
+
+        DB::transaction(function () use ($program, $partner) {
+            if ($program->allocated_budget > 0 && $program->status === 'active') {
+                $this->refundToWallet($partner, (int) $program->allocated_budget, "prog_delete:{$program->id}", "Devolução do orçamento do Programa eliminado: {$program->title}", $program->id);
+            }
+            $program->delete();
+        });
+
+        return response()->json(['status' => 'success', 'message' => 'Programa eliminado e orçamento devolvido à carteira.']);
+    }
+
+    private function refundToWallet(Partner $partner, int $amount, string $key, string $description, string $programId): void
+    {
+        $wallet = Wallet::where('walletable_type', Partner::class)
+            ->where('walletable_id', $partner->id)
+            ->where('currency', 'KVC')
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $wallet->increment('balance', $amount);
+
+        LedgerEntry::create([
+            'wallet_id'       => $wallet->id,
+            'idempotency_key' => $key,
+            'direction'       => 'credit',
+            'entry_type'      => 'adjustment',
+            'amount'          => $amount,
+            'description'     => $description,
+            'metadata'        => ['partner_id' => $partner->id, 'program_id' => $programId],
+            'created_at'      => now(),
+        ]);
+    }
+
     private function getAuthenticatedPartner(Request $request): Partner
     {
-        $user = $request->user();
-
-        if ($user->partner_id) {
-            return Partner::findOrFail($user->partner_id);
-        }
-
-        if ($user->partner) {
-            return $user->partner;
-        }
-
-        $firstPartner = Partner::first();
-        if ($firstPartner) {
-            return $firstPartner;
-        }
-
-        return Partner::create([
-            'name'          => 'Banco Parceiro KIVARA',
-            'contact_email' => $user->email,
-            'is_active'     => true,
-        ]);
+        return \App\Support\PartnerContext::resolve($request);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Auth;
 use App\Http\Controllers\Controller;
 use App\Mail\RegistrationOtpMail;
 use App\Models\Family;
+use App\Models\Partner;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -30,6 +31,14 @@ class RegisterController extends Controller
             'email' => 'required|email|max:255|unique:users,email',
             'password' => ['required', 'confirmed', Password::min(8)],
             'role' => 'sometimes|in:parent,partner',
+            'institution_name' => 'nullable|string|max:255',
+            'nif' => 'nullable|string|max:30',
+            'sector' => 'nullable|string|max:100',
+            'phone' => 'nullable|string|max:30',
+            'country' => 'nullable|string|max:100',
+            'city' => 'nullable|string|max:100',
+            'address' => 'nullable|string|max:255',
+            'director_name' => 'nullable|string|max:255',
         ]);
 
         $role = $data['role'] ?? 'parent';
@@ -47,8 +56,26 @@ class RegisterController extends Controller
                 ? Family::create(['tenant_id' => $tenant->id, 'name' => 'Família ' . $data['name'], 'currency' => 'AOA'])
                 : null;
 
+            // Parceiros ficam `pending` ate o administrador aprovar a candidatura.
+            $partner = $role === 'partner'
+                ? Partner::create([
+                    'name' => $data['institution_name'] ?? $data['name'],
+                    'contact_email' => $data['email'],
+                    'is_active' => true,
+                    'status' => 'pending',
+                    'nif' => $data['nif'] ?? null,
+                    'sector' => $data['sector'] ?? null,
+                    'phone' => $data['phone'] ?? null,
+                    'country' => $data['country'] ?? null,
+                    'city' => $data['city'] ?? null,
+                    'address' => $data['address'] ?? null,
+                    'director_name' => $data['director_name'] ?? $data['name'],
+                ])
+                : null;
+
             return User::create([
                 'tenant_id' => $tenant->id,
+                'partner_id' => $partner?->id,
                 'family_id' => $family?->id,
                 'name' => $data['name'],
                 'email' => $data['email'],

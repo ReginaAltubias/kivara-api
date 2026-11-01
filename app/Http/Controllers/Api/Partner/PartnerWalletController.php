@@ -329,28 +329,7 @@ class PartnerWalletController extends Controller
      */
     private function getAuthenticatedPartner(Request $request): Partner
     {
-        $user = $request->user();
-
-        if ($user->partner_id) {
-            return Partner::findOrFail($user->partner_id);
-        }
-
-        // Se o utilizador tiver relação partner direta
-        if ($user->partner) {
-            return $user->partner;
-        }
-
-        // Se for admin a gerir o primeiro parceiro de teste
-        $firstPartner = Partner::first();
-        if ($firstPartner) {
-            return $firstPartner;
-        }
-
-        return Partner::create([
-            'name'          => 'Banco Parceiro KIVARA',
-            'contact_email' => $user->email,
-            'is_active'     => true,
-        ]);
+        return \App\Support\PartnerContext::resolve($request);
     }
 
     /**

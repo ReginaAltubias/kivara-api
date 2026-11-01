@@ -97,6 +97,7 @@ class PartnerChallengeController extends Controller
             'ends_at'                   => 'nullable|date',
             'school_reward_id'          => 'nullable|uuid|exists:school_rewards,id',
             'school_reward_description' => 'nullable|string|max:255',
+            'status'                    => 'nullable|in:draft,active,scheduled',
         ]);
 
         $goalType = $validated['goal_type'];
@@ -132,7 +133,7 @@ class PartnerChallengeController extends Controller
                 'reward_pool'               => $rewardPool,
                 'starts_at'                 => $validated['starts_at'] ?? now(),
                 'ends_at'                   => $validated['ends_at'] ?? now()->addMonth(),
-                'status'                    => 'active',
+                'status'                    => $validated['status'] ?? 'active',
                 'school_reward_id'          => $validated['school_reward_id'] ?? null,
                 'school_reward_description' => $validated['school_reward_description'] ?? null,
             ]);
@@ -196,7 +197,7 @@ class PartnerChallengeController extends Controller
         $validated = $request->validate([
             'title'                     => 'sometimes|required|string|max:255',
             'description'               => 'nullable|string|max:1000',
-            'status'                    => 'nullable|string|in:active,completed,cancelled',
+            'status'                    => 'nullable|string|in:draft,active,scheduled,completed,cancelled',
             'starts_at'                 => 'nullable|date',
             'ends_at'                   => 'nullable|date',
             'school_reward_id'          => 'nullable|uuid|exists:school_rewards,id',
@@ -243,27 +244,47 @@ class PartnerChallengeController extends Controller
     /**
      * Helper para identificar o parceiro autenticado
      */
+    /** PATCH /api/v1/partner/challenges/{id}/status — atalho para mudar so o estado. */
+    public function setStatus(Request $request, string $id): JsonResponse
+    {
+        $request->validate(['status' => 'required|in:draft,active,scheduled,completed,cancelled']);
+
+        return $this->update($request, $id);
+    }
+
+    /** GET /api/v1/partner/challenges/{id}/participations — turmas inscritas (sem dados pessoais). */
+    public function participations(Request $request, string $id): JsonResponse
+    {
+        $partner = $this->getAuthenticatedPartner($request);
+        $challenge = PartnerChallenge::where('partner_id', $partner->id)->findOrFail($id);
+
+        $rows = DB::table('classroom_challenge')
+            ->join('classrooms', 'classrooms.id', '=', 'classroom_challenge.classroom_id')
+            ->leftJoin('tenants', 'tenants.id', '=', 'classrooms.tenant_id')
+            ->where('classroom_challenge.partner_challenge_id', $challenge->id)
+            ->select(
+                'classrooms.id as classroom_id',
+                'classrooms.name as classroom_name',
+                'tenants.name as school_name',
+                'classroom_challenge.current_progress',
+                'classroom_challenge.status'
+            )
+            ->orderByDesc('classroom_challenge.current_progress')
+            ->get()
+            ->map(fn ($r) => [
+                'classroom_id' => $r->classroom_id,
+                'classroom_name' => $r->classroom_name,
+                'school_name' => $r->school_name,
+                'current_progress' => (int) $r->current_progress,
+                'goal_target' => (int) $challenge->goal_target,
+                'status' => $r->status,
+            ]);
+
+        return response()->json(['status' => 'success', 'data' => $rows]);
+    }
+
     private function getAuthenticatedPartner(Request $request): Partner
     {
-        $user = $request->user();
-
-        if ($user->partner_id) {
-            return Partner::findOrFail($user->partner_id);
-        }
-
-        if ($user->partner) {
-            return $user->partner;
-        }
-
-        $firstPartner = Partner::first();
-        if ($firstPartner) {
-            return $firstPartner;
-        }
-
-        return Partner::create([
-            'name'          => 'Banco Parceiro KIVARA',
-            'contact_email' => $user->email,
-            'is_active'     => true,
-        ]);
+        return \App\Support\PartnerContext::resolve($request);
     }
 }

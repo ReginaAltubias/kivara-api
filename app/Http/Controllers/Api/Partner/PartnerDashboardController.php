@@ -24,19 +24,15 @@ class PartnerDashboardController extends Controller
     )]
     public function index(Request $request)
     {
-        $user = $request->user();
-
-        if (!$user->partner_id) {
-            return response()->json(['message' => 'Utilizador não associado a nenhum parceiro.'], 403);
-        }
+        $partnerId = \App\Support\PartnerContext::resolve($request)->id;
 
         // Fetch challenges for this partner
-        $challenges = PartnerChallenge::where('partner_id', $user->partner_id)->get();
+        $challenges = PartnerChallenge::where('partner_id', $partnerId)->get();
         $challengeIds = $challenges->pluck('id');
 
         // Total Budget Spent (for concluded challenges)
-        $totalBudgetSpent = PartnerChallenge::where('partner_id', $user->partner_id)
-            ->where('status', 'concluded')
+        $totalBudgetSpent = PartnerChallenge::where('partner_id', $partnerId)
+            ->where('status', 'completed')
             ->sum('reward_pool');
 
         // Total Participants
@@ -59,7 +55,7 @@ class PartnerDashboardController extends Controller
                 'classes_involved' => $classesInvolved,
             ],
             'active_campaigns' => $challenges->where('status', 'active')->values(),
-            'completed_campaigns' => $challenges->where('status', 'concluded')->values(),
+            'completed_campaigns' => $challenges->where('status', 'completed')->values(),
         ]);
     }
 }

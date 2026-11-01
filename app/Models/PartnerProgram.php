@@ -18,10 +18,17 @@ class PartnerProgram extends Model
         'description',
         'allocated_budget',
         'status',
+        'program_type',
+        'children_target',
+        'starts_at',
+        'ends_at',
     ];
 
     protected $casts = [
         'allocated_budget' => 'integer',
+        'children_target'  => 'integer',
+        'starts_at'        => 'datetime',
+        'ends_at'          => 'datetime',
         'created_at'       => 'datetime',
         'updated_at'       => 'datetime',
     ];
@@ -47,7 +54,7 @@ class PartnerProgram extends Model
      */
     public function committedBudget(): int
     {
-        return (int) $this->challenges()->sum('reward_pool');
+        return (int) $this->challenges()->where('status', '!=', 'cancelled')->sum('reward_pool');
     }
 
     /**
