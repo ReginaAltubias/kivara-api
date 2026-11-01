@@ -23,7 +23,7 @@ class MissionController extends Controller
         $user = $request->user();
         $missions = Mission::query()
             ->with('child:id,name,avatar,parent_id,family_id')
-            ->when($user->role !== 'admin', fn ($q) => $q->whereHas('child', fn ($c) => $c->where('parent_id', $user->id)))
+            ->whereHas('child', fn ($c) => $this->visibleChildren($c, $user))
             ->when($request->filled('child_profile_id'), fn ($q) => $q->where('child_id', $request->query('child_profile_id')))
             ->latest()
             ->get();
@@ -34,6 +34,7 @@ class MissionController extends Controller
     public function store(Request $request): JsonResponse
     {
         $user = $request->user();
+        abort_unless($user->teacherCan('can_assign_missions'), 403, 'Sem permissão para atribuir missões.');
 
         $data = $request->validate([
             'title' => 'required|string|max:255',
@@ -219,11 +220,27 @@ class MissionController extends Controller
 
     // ------------------------------------------------------------------ helpers
 
+    /** Criancas que o utilizador pode ver: as suas (encarregado), as das suas turmas (professor), da escola (coordenador) ou todas (admin). */
+    private function visibleChildren($query, $user)
+    {
+        if ($user->role === 'admin') {
+            return $query;
+        }
+
+        return $query->where(function ($w) use ($user) {
+            $w->where('parent_id', $user->id);
+            if ($user->role === 'teacher') {
+                $w->orWhereHas('classrooms', fn ($c) => $c->whereHas('teachers', fn ($t) => $t->where('users.id', $user->id)));
+            }
+            if (in_array($user->role, ['coordinator', 'coordenador'], true) && $user->tenant_id) {
+                $w->orWhere('tenant_id', $user->tenant_id);
+            }
+        });
+    }
+
     private function ownedChild($user, string $childId): ChildProfile
     {
-        return ChildProfile::query()
-            ->when($user->role !== 'admin', fn ($q) => $q->where('parent_id', $user->id))
-            ->findOrFail($childId);
+        return ChildProfile::query()->tap(fn ($q) => $this->visibleChildren($q, $user))->findOrFail($childId);
     }
 
     private function ownedMission(Request $request, string $id): Mission
@@ -231,7 +248,7 @@ class MissionController extends Controller
         $user = $request->user();
 
         return Mission::query()->with('child')
-            ->when($user->role !== 'admin', fn ($q) => $q->whereHas('child', fn ($c) => $c->where('parent_id', $user->id)))
+            ->whereHas('child', fn ($c) => $this->visibleChildren($c, $user))
             ->findOrFail($id);
     }
 

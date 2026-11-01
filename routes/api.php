@@ -87,6 +87,8 @@ Route::prefix('v1')->group(function () {
         // ONBOARDING
         // ====================================================================
         Route::prefix('onboarding')->group(function () {
+            // Os passos do tour estao no front; sem registos na API devolve lista vazia.
+            Route::get('/steps', fn () => response()->json(['status' => 'success', 'data' => []]))->name('onboarding.steps');
             Route::get('/progress', [OnboardingController::class, 'getProgress']);
             Route::put('/progress', [OnboardingController::class, 'updateProgress']);
             Route::post('/analytics', [OnboardingController::class, 'trackAnalytics']);
@@ -97,6 +99,7 @@ Route::prefix('v1')->group(function () {
         // ====================================================================
         Route::prefix('notifications')->group(function () {
             Route::get('/', [\App\Http\Controllers\Api\NotificationController::class, 'index'])->name('notifications.index');
+            Route::post('/', [\App\Http\Controllers\Api\NotificationController::class, 'store'])->name('notifications.store');
             Route::get('settings', [\App\Http\Controllers\Api\NotificationController::class, 'settings'])->name('notifications.settings');
             Route::put('settings', [\App\Http\Controllers\Api\NotificationController::class, 'updateSettings'])->name('notifications.settings.update');
             Route::post('mark-all-read', [\App\Http\Controllers\Api\NotificationController::class, 'markAllRead'])->name('notifications.mark-all-read');
@@ -282,7 +285,7 @@ Route::prefix('v1')->group(function () {
             });
 
             // Relatórios para Coordenador (Protegidos por Subscrição Ativa)
-            Route::prefix('reports')->middleware(['user.role:coordinator|coordenador|admin', 'subscribed.tenant'])->group(function () {
+            Route::prefix('reports')->middleware(['user.role:coordinator|coordenador|assistant|admin', 'subscribed.tenant'])->group(function () {
                 Route::get('teacher-activity', [ReportController::class, 'teacherActivity'])->name('b2b.reports.teacher-activity');
                 Route::get('milestones', [ReportController::class, 'milestones'])->name('b2b.reports.milestones');
             });
@@ -337,7 +340,7 @@ Route::prefix('v1')->group(function () {
             Route::get('dashboard', [SchoolDashboardController::class, 'index'])->name('school.dashboard');
 
             // Gestão de Alunos da Escola
-            Route::prefix('students')->middleware('user.role:coordinator|coordenador|teacher|admin')->group(function () {
+            Route::prefix('students')->middleware('user.role:coordinator|coordenador|assistant|teacher|admin')->group(function () {
                 Route::get('/', [SchoolStudentController::class, 'index'])->name('school.students.index');
                 Route::delete('{id}', [SchoolStudentController::class, 'destroy'])->name('school.students.destroy');
             });
@@ -350,7 +353,8 @@ Route::prefix('v1')->group(function () {
             Route::patch('teachers/{id}/classrooms', [B2BStaffController::class, 'syncClassrooms'])->middleware('user.role:coordinator|admin')->name('school.teachers.classrooms');
             Route::delete('teachers/{id}', [B2BStaffController::class, 'destroy'])->middleware('user.role:coordinator|admin')->name('school.teachers.destroy');
             Route::get('permissions/teachers', [B2BStaffController::class, 'index'])->name('school.permissions.teachers');
-            Route::patch('teacher-permissions/{id}', [B2BStaffController::class, 'updatePermissions'])->name('school.teacher-permissions.update');
+            Route::get('teacher-permissions', [B2BStaffController::class, 'permissionsList'])->name('school.teacher-permissions.index');
+            Route::patch('teacher-permissions/{id}', [B2BStaffController::class, 'updatePermissions'])->middleware('user.role:coordinator|coordenador|admin')->name('school.teacher-permissions.update');
 
             // Turmas & Estatísticas da Escola
             Route::get('classrooms', [ClassroomController::class, 'index'])->name('school.classrooms.index');
@@ -364,7 +368,7 @@ Route::prefix('v1')->group(function () {
             Route::get('reports', [ReportController::class, 'reports'])->name('school.reports.index');
 
             // Desafios Coletivos da Escola
-            Route::prefix('challenges')->middleware('user.role:coordinator|coordenador|teacher|admin')->group(function () {
+            Route::prefix('challenges')->middleware('user.role:coordinator|coordenador|assistant|teacher|admin')->group(function () {
                 Route::get('/', [ChallengeController::class, 'index'])->name('school.challenges.index');
                 Route::post('/', [ChallengeController::class, 'store'])->name('school.challenges.store')->middleware('subscribed.tenant');
                 Route::get('{id}/leaderboard', [ChallengeController::class, 'leaderboard'])->name('school.challenges.leaderboard');
@@ -383,7 +387,7 @@ Route::prefix('v1')->group(function () {
             });
 
             // Relatórios Avançados para Coordenador (Protegidos por Subscrição Ativa)
-            Route::middleware(['user.role:coordinator|coordenador|admin', 'subscribed.tenant'])->group(function () {
+            Route::middleware(['user.role:coordinator|coordenador|assistant|admin', 'subscribed.tenant'])->group(function () {
                 Route::get('teacher-activity', [ReportController::class, 'teacherActivity'])->name('school.teacher-activity');
                 Route::get('milestones', [ReportController::class, 'milestones'])->name('school.milestones');
             });
@@ -417,6 +421,10 @@ Route::prefix('v1')->group(function () {
             Route::post('classrooms/{id}/lessons', [ClassroomController::class, 'assignLesson'])->name('teacher.classrooms.assign-lesson');
             Route::get('classrooms/{id}/pending-evaluations', [MissionEvaluationController::class, 'pendingEvaluations'])->name('teacher.classrooms.pending-evaluations');
             Route::post('evaluations/{progressId}', [SchoolEvaluationController::class, 'evaluate'])->name('teacher.evaluations.evaluate');
+            Route::get('dashboard', [TeacherClassroomController::class, 'dashboard'])->name('teacher.dashboard');
+            Route::get('student-progress', [TeacherClassroomController::class, 'studentProgressList'])->name('teacher.student-progress');
+            Route::get('milestones', [TeacherClassroomController::class, 'milestonesList'])->name('teacher.milestones');
+            Route::get('students/{id}', [TeacherClassroomController::class, 'studentDetail'])->name('teacher.students.show');
         });
 
         // ====================================================================
@@ -448,6 +456,8 @@ Route::prefix('v1')->group(function () {
             Route::post('{id}/version', [TrailController::class, 'version'])->name('trails.version');
         });
 
+        Route::get('lessons', [TrailController::class, 'catalog'])->name('lessons.catalog');
+        Route::get('trails/{id}/lessons', [TrailController::class, 'trailLessons'])->name('trails.lessons');
         Route::prefix('lessons')->group(function () {
             Route::post('{id}/submit-review', [TrailController::class, 'submitLessonReview'])->name('lessons.submit-review');
             Route::post('{id}/approve', [TrailController::class, 'approveLesson'])->name('lessons.approve');
@@ -461,7 +471,7 @@ Route::prefix('v1')->group(function () {
         // ====================================================================
         // GESTÃO DE TURMAS (Root Alias para Frontend)
         // ====================================================================
-        Route::prefix('classrooms')->middleware('user.role:coordinator|coordenador|teacher|admin')->group(function () {
+        Route::prefix('classrooms')->middleware('user.role:coordinator|coordenador|assistant|teacher|admin')->group(function () {
             Route::get('/', [ClassroomController::class, 'index'])->name('root.classrooms.index');
             Route::post('/', [ClassroomController::class, 'store'])->name('root.classrooms.store');
             Route::get('{id}', [ClassroomController::class, 'show'])->name('root.classrooms.show');

@@ -48,8 +48,8 @@ class B2BStaffController extends Controller
         $query = User::with(['roles', 'classrooms:id,name'])
             ->where('tenant_id', $tenantId)
             ->where(function ($q) {
-                $q->whereIn('role', ['teacher', 'coordinator', 'school_admin'])
-                  ->orWhereHas('roles', fn($r) => $r->whereIn('name', ['teacher', 'coordinator', 'school_admin']));
+                $q->whereIn('role', ['teacher', 'coordinator', 'school_admin', 'assistant'])
+                  ->orWhereHas('roles', fn($r) => $r->whereIn('name', ['teacher', 'coordinator', 'school_admin', 'assistant']));
             });
 
         if ($search) {
@@ -75,11 +75,7 @@ class B2BStaffController extends Controller
                 'is_active'     => (bool) $member->is_active,
                 'classroom_ids' => $member->classrooms->pluck('id')->toArray(),
                 'created_at'    => $member->created_at?->toISOString(),
-                'permissions'   => [
-                    'can_edit_classes'      => true,
-                    'can_assign_missions'   => true,
-                    'can_assign_challenges' => true,
-                    'can_view_reports'      => true,
+                'permissions'   => $member->teacherPermissions() + [
                     'teachers.manage'       => in_array('coordinator', $roles) || in_array('school_admin', $roles),
                     'students.manage'       => true,
                     'classrooms.manage'     => true,
@@ -114,7 +110,7 @@ class B2BStaffController extends Controller
         $request->validate([
             'email' => 'required|email|unique:users,email',
             'name'  => 'required|string|max:255',
-            'role'  => 'required|in:teacher,coordinator',
+            'role'  => 'required|in:teacher,coordinator,assistant',
         ]);
 
         $inviter = $request->user();
@@ -142,6 +138,7 @@ class B2BStaffController extends Controller
             'is_active'             => true,
         ]);
 
+        \Spatie\Permission\Models\Role::findOrCreate($request->role, \Spatie\Permission\Guard::getDefaultName($newStaff));
         $newStaff->assignRole($request->role);
 
         // Despacho assíncrono do e-mail com credenciais e código OTP
@@ -205,14 +202,50 @@ class B2BStaffController extends Controller
         $tenantId = $request->user()->tenant_id;
         $staff = User::where('tenant_id', $tenantId)->findOrFail($id);
 
-        // Se houver permissões específicas no payload
-        $permissions = $request->input('permissions', []);
+        $data = $request->validate([
+            'permissions' => 'required|array',
+            'permissions.can_edit_classes' => 'sometimes|boolean',
+            'permissions.can_assign_missions' => 'sometimes|boolean',
+            'permissions.can_assign_challenges' => 'sometimes|boolean',
+            'permissions.can_view_reports' => 'sometimes|boolean',
+        ]);
+
+        $staff->update(['teacher_permissions' => array_merge($staff->teacherPermissions(), $data['permissions'])]);
 
         return response()->json([
             'success'     => true,
+            'status'      => 'success',
             'message'     => 'Permissões atualizadas com sucesso.',
-            'permissions' => $permissions,
+            'permissions' => $staff->fresh()->teacherPermissions(),
         ], 200);
+    }
+
+    /** GET /school/teacher-permissions[?teacher_profile_id=] — permissoes de cada professor da escola. */
+    public function permissionsList(Request $request): JsonResponse
+    {
+        $me = $request->user();
+        $tenantId = $me->tenant_id;
+        abort_unless($tenantId, 403, 'Sem escola associada.');
+
+        $rows = User::with(['classrooms:id'])
+            ->where('tenant_id', $tenantId)
+            ->where('role', 'teacher')
+            ->when($me->role === 'teacher', fn ($q) => $q->where('id', $me->id))
+            ->when($request->filled('teacher_profile_id'), fn ($q) => $q->where('id', $request->query('teacher_profile_id')))
+            ->get()
+            ->map(fn (User $u) => [
+                'id' => $u->id,
+                'teacher_profile_id' => $u->id,
+                'user_id' => $u->id,
+                'display_name' => $u->name,
+                'email' => $u->email,
+                'avatar' => $u->avatar,
+                'roles' => [$u->role],
+                'classroom_ids' => $u->classrooms->pluck('id')->values(),
+                'permissions' => $u->teacherPermissions(),
+            ]);
+
+        return response()->json(['status' => 'success', 'data' => $rows->values()]);
     }
 
     /**

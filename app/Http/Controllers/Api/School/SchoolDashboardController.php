@@ -74,7 +74,7 @@ class SchoolDashboardController extends Controller
 
         $engagementRate = $allProgressTotal > 0
             ? round(($completedTotal / $allProgressTotal) * 100, 1)
-            : 85.0;
+            : 0.0;
 
         // 4. Curva de engajamento dos últimos 7 dias
         $daysMap = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
@@ -90,38 +90,32 @@ class SchoolDashboardController extends Controller
                       ->orWhereHas('teen', fn($t) => $t->where('tenant_id', $tenantId));
                 })
                 ->selectRaw("
-                    COALESCE(SUM(GREATEST(total_xp_earned, xp_awarded)), 0) as xp,
+                    COALESCE(SUM(total_xp_earned), 0) as xp,
                     COUNT(id) as missions
                 ")->first();
 
             $engagementCurve[] = [
                 'day'      => $dayName,
-                'xp'       => (int) ($dayStats->xp ?? ($i * 1200 + 1500)),
-                'missions' => (int) ($dayStats->missions ?? ($i * 5 + 10)),
+                'xp'       => (int) ($dayStats->xp ?? 0),
+                'missions' => (int) ($dayStats->missions ?? 0),
             ];
         }
 
         // 5. Progresso por ano letivo / grau
+        // Progresso real por ano/classe: % de licoes concluidas pelos alunos das turmas desse ano
         $progressByYear = Classroom::where('tenant_id', $tenantId)
             ->where('is_active', true)
-            ->select('grade_level')
-            ->distinct()
-            ->get()
-            ->map(function ($c) {
-                return [
-                    'year'     => $c->grade_level ?: 'Geral',
-                    'progress' => mt_rand(50, 90),
-                ];
-            });
+            ->get(['id', 'grade_level'])
+            ->groupBy(fn ($c) => $c->grade_level ?: 'Geral')
+            ->map(function ($rooms, $year) {
+                $members = \App\Models\ClassroomUser::query()->whereIn('classroom_id', $rooms->pluck('id'))->where('role', 'student')->get(['child_profile_id', 'user_id']);
+                $childIds = $members->pluck('child_profile_id')->filter();
+                $userIds = $members->pluck('user_id')->filter();
+                $total = UserProgress::where(fn ($q) => $q->whereIn('child_profile_id', $childIds)->orWhereIn('user_id', $userIds))->count();
+                $done = UserProgress::where('completed', true)->where(fn ($q) => $q->whereIn('child_profile_id', $childIds)->orWhereIn('user_id', $userIds))->count();
 
-        if ($progressByYear->isEmpty()) {
-            $progressByYear = [
-                ['year' => '1º Ano', 'progress' => 45],
-                ['year' => '2º Ano', 'progress' => 60],
-                ['year' => '3º Ano', 'progress' => 75],
-                ['year' => '4º Ano', 'progress' => 88],
-            ];
-        }
+                return ['year' => (string) $year, 'progress' => $total > 0 ? (int) round($done / $total * 100) : 0];
+            })->values();
 
         return response()->json([
             'status' => 'success',

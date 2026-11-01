@@ -51,6 +51,7 @@ class ChallengeController extends Controller
                     'school_reward_description' => $c->school_reward_description ?? $c->schoolReward?->name,
                     'classroom_ids'             => $c->classrooms->pluck('id')->toArray(),
                     'classrooms_count'          => $c->classrooms->count(),
+                    'current_amount'            => (int) $c->classrooms->sum(fn ($cl) => (int) ($cl->pivot->current_progress ?? 0)),
                 ];
             });
 
@@ -79,6 +80,8 @@ class ChallengeController extends Controller
     )]
     public function store(Request $request): JsonResponse
     {
+        abort_unless($request->user()->teacherCan('can_assign_challenges'), 403, 'Sem permissão para criar desafios.');
+
         $validated = $request->validate([
             'title'                     => 'required|string|max:255',
             'description'               => 'nullable|string|max:1000',

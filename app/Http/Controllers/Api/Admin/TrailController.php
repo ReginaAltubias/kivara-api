@@ -303,4 +303,54 @@ class TrailController extends Controller
             ],
         ], 200);
     }
+
+    /** GET /lessons — catalogo de licoes (publicadas; o admin pode pedir todas com include_inactive=1). */
+    public function catalog(Request $request): JsonResponse
+    {
+        $all = $request->boolean('include_inactive') && in_array($request->user()->role, ['admin', 'teacher', 'coordinator', 'coordenador'], true);
+
+        $lessons = \App\Models\Lesson::query()
+            ->with('trail:id,title,kivara_phase_id,grade_level')
+            ->when(! $all, fn ($q) => $q->where('status', 'published'))
+            ->orderBy('trail_id')->orderBy('order')
+            ->get();
+
+        return response()->json(['status' => 'success', 'data' => $lessons->map(fn ($l) => $this->presentLesson($l))->values()]);
+    }
+
+    /** GET /trails/{id}/lessons */
+    public function trailLessons(Request $request, string $id): JsonResponse
+    {
+        $lessons = \App\Models\Lesson::query()
+            ->with('trail:id,title,kivara_phase_id,grade_level')
+            ->where('trail_id', $id)
+            ->where('status', 'published')
+            ->orderBy('order')->get();
+
+        return response()->json(['status' => 'success', 'data' => $lessons->map(fn ($l) => $this->presentLesson($l))->values()]);
+    }
+
+    private function presentLesson(\App\Models\Lesson $l): array
+    {
+        $status = $l->status instanceof \BackedEnum ? $l->status->value : (string) $l->status;
+
+        return [
+            'id' => $l->id,
+            'title' => $l->title,
+            'description' => \Illuminate\Support\Str::limit(trim(strip_tags((string) $l->content_body)), 160),
+            'icon' => null,
+            'category' => 'saving',
+            'difficulty' => null,
+            'estimated_minutes' => null,
+            'kiva_points_reward' => (int) $l->xp_reward,
+            'blocks' => [],
+            'quiz' => [],
+            'sort_order' => $l->order,
+            'is_active' => $status === 'published',
+            'status' => $status,
+            'trail_ref' => $l->trail_id,
+            'trail_name' => $l->trail?->title,
+            'mission_template_id' => \App\Models\MissionTemplate::where('lesson_id', $l->id)->value('id'),
+        ];
+    }
 }

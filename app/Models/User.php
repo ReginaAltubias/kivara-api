@@ -29,6 +29,7 @@ class User extends Authenticatable
         'pairing_code',
         'is_active',
         'notification_settings',
+        'teacher_permissions',
         'phone',
         'avatar',
         'country',
@@ -50,9 +51,29 @@ class User extends Authenticatable
         'must_change_password' => 'boolean',
         'is_active' => 'boolean',
         'notification_settings' => 'array',
+        'teacher_permissions' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    public const TEACHER_PERMISSION_KEYS = ['can_edit_classes', 'can_assign_missions', 'can_assign_challenges', 'can_view_reports'];
+
+    /** Permissoes do professor (sem registo = todas concedidas; coordenador/admin sempre). */
+    public function teacherPermissions(): array
+    {
+        $stored = $this->teacher_permissions ?? [];
+
+        return collect(self::TEACHER_PERMISSION_KEYS)->mapWithKeys(fn ($k) => [$k => (bool) ($stored[$k] ?? true)])->all();
+    }
+
+    public function teacherCan(string $permission): bool
+    {
+        if ($this->role !== 'teacher') {
+            return true;
+        }
+
+        return $this->teacherPermissions()[$permission] ?? true;
+    }
 
     /**
      * Relação: Pertence a Tenant (nullable)

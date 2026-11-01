@@ -110,9 +110,23 @@ class ClassroomController extends Controller
     {
         $classroom = $this->findScoped($request, $id);
 
+        $classroom->load(['teachers', 'students.parent']);
+        // Contacto do encarregado de cada aluno (comunicacao do professor)
+        $classroom->students->each(function ($s) {
+            $s->setAttribute('guardian', $s->parent ? [
+                'id' => $s->parent->id,
+                'profile_id' => $s->parent->id,
+                'display_name' => $s->parent->name,
+                'phone' => $s->parent->phone,
+                'user' => ['email' => $s->parent->email],
+            ] : null);
+            $s->setAttribute('display_name', $s->name);
+            $s->unsetRelation('parent');
+        });
+
         return response()->json([
             'status' => 'success',
-            'data' => $classroom->load(['teachers', 'students']),
+            'data' => $classroom,
         ], 200);
     }
 

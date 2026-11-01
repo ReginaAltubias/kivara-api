@@ -44,86 +44,12 @@ class SchoolEvaluationController extends Controller
             'score' => 'nullable|integer|min:0|max:100',
         ]);
 
-        $teacher = $request->user();
-        $rawStatus = $request->status;
-        $isApproved = in_array(strtolower($rawStatus), ['aprovado', 'approved', 'validada']);
-        $normalizedStatus = $isApproved ? 'aprovado' : 'rejeitado';
-        $feedback = $request->teacher_feedback ?? $request->feedback ?? '';
-        $score = (int) ($request->score ?? ($isApproved ? 100 : 0));
+        // Mesma avaliacao que o fluxo /b2b/evaluations (estado, XP/moedas e feedback), sem logica duplicada.
+        $isApproved = in_array(strtolower($request->status), ['aprovado', 'approved', 'validada'], true);
+        $evaluator = app(MissionEvaluationController::class);
 
-        $result = DB::transaction(function () use ($progressId, $teacher, $isApproved, $normalizedStatus, $feedback, $score) {
-            $progress = UserProgress::where('id', $progressId)
-                ->lockForUpdate()
-                ->firstOrFail();
-
-            $progress->status = $isApproved ? 'validada' : 'rejeitado';
-            $progress->teacher_feedback = $feedback;
-            $progress->feedback = $feedback;
-            $progress->score = $score;
-            $progress->reviewed_by = $teacher->id ?? null;
-            $progress->evaluated_at = now();
-            $progress->completed = $isApproved;
-            if ($isApproved) {
-                $progress->completed_at = now();
-            }
-            $progress->save();
-
-            $rewardTransaction = null;
-
-            if ($isApproved) {
-                // Identifica o aluno
-                $student = null;
-                if ($progress->child_profile_id) {
-                    $student = ChildProfile::find($progress->child_profile_id);
-                } elseif ($progress->user_id) {
-                    $student = User::find($progress->user_id);
-                }
-
-                if ($student) {
-                    $lesson = $progress->learningObject ?? \App\Models\Lesson::find($progress->lesson_id);
-                    
-                    if (!$lesson) {
-                        // Lição virtual para cálculo de recompensas
-                        $lesson = (object) [
-                            'id' => $progress->learning_object_id ?? $progress->id,
-                            'title' => 'Atividade Prática Escolar',
-                            'coins_reward' => 20,
-                            'kiva_points_reward' => 30,
-                            'xp_reward' => 50,
-                        ];
-                    }
-
-                    $rewardData = $this->financialLedgerService->rewardLessonCompletion(
-                        recipient: $student,
-                        lesson: $lesson instanceof \App\Models\Lesson ? $lesson : new \App\Models\Lesson([
-                            'id' => (string) \Illuminate\Support\Str::uuid(),
-                            'title' => 'Atividade Pedagógica',
-                            'xp_reward' => 50,
-                        ]),
-                        evaluatorId: $teacher->id ?? null
-                    );
-
-                    $rewardTransaction = [
-                        'transaction_id' => $rewardData['transaction_id'] ?? (string) \Illuminate\Support\Str::uuid(),
-                        'kiva_coins_credited' => (int) ($rewardData['kiva_coins_credited'] ?? 20),
-                        'kiva_points_credited' => (int) ($rewardData['kiva_points_credited'] ?? 30),
-                        'student_wallet_balance' => (float) ($rewardData['student_wallet_balance'] ?? 150.00),
-                    ];
-                }
-            }
-
-            return [
-                'progress_id' => $progress->id,
-                'status' => $normalizedStatus,
-                'teacher_feedback' => $feedback,
-                'score' => $score,
-                'evaluated_at' => now()->toIso8601String(),
-                'reward_transaction' => $rewardTransaction,
-            ];
-        });
-
-        return response()->json([
-            'data' => $result,
-        ], 200);
+        return $isApproved
+            ? $evaluator->approve($request, $progressId)
+            : $evaluator->reject($request, $progressId);
     }
 }

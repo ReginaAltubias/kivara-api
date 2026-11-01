@@ -41,6 +41,73 @@ class NotificationController extends Controller
         ]);
     }
 
+    /**
+     * POST /api/v1/notifications — professor/coordenador envia uma mensagem a uma turma,
+     * a um aluno (e ao seu encarregado) ou a um encarregado das suas turmas.
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $sender = $request->user();
+        abort_unless(in_array($sender->role, ['teacher', 'coordinator', 'coordenador', 'admin'], true), 403);
+
+        $data = $request->validate([
+            'classroom_id' => 'nullable|uuid|exists:classrooms,id',
+            'profile_id' => 'nullable|uuid',
+            'recipient_id' => 'nullable|uuid',
+            'title' => 'nullable|string|max:120',
+            'message' => 'required|string|max:1000',
+            'type' => 'nullable|string|max:60',
+        ]);
+        abort_if(! ($data['classroom_id'] ?? null) && ! ($data['profile_id'] ?? null) && ! ($data['recipient_id'] ?? null), 422, 'Indique a turma ou o destinatário.');
+
+        // Turmas a que o remetente tem acesso
+        $classrooms = \App\Models\Classroom::query()
+            ->when($sender->role === 'teacher', fn ($q) => $q->whereHas('teachers', fn ($t) => $t->where('users.id', $sender->id)))
+            ->when(in_array($sender->role, ['coordinator', 'coordenador'], true), fn ($q) => $q->where('tenant_id', $sender->tenant_id))
+            ->get();
+
+        $children = collect();
+        $teens = collect();
+        foreach ($classrooms as $c) {
+            if (isset($data['classroom_id']) && $c->id !== $data['classroom_id']) {
+                continue;
+            }
+            $children = $children->merge($c->childStudents()->get());
+            $teens = $teens->merge($c->teenStudents()->get());
+        }
+
+        if (! empty($data['classroom_id'])) {
+            abort_if($classrooms->where('id', $data['classroom_id'])->isEmpty(), 404);
+        }
+        if (! empty($data['profile_id'])) {
+            $children = $children->where('id', $data['profile_id']);
+            $teens = $teens->where('id', $data['profile_id']);
+            abort_if($children->isEmpty() && $teens->isEmpty(), 404);
+        }
+
+        $recipients = collect();
+        if (! empty($data['recipient_id'])) {
+            $guardianIds = $children->pluck('parent_id');
+            abort_unless($guardianIds->contains($data['recipient_id']), 404);
+            $recipients->push(\App\Models\User::findOrFail($data['recipient_id']));
+        } else {
+            $recipients = $recipients->merge($children->unique('id'))->merge($teens->unique('id'))
+                ->merge(\App\Models\User::whereIn('id', $children->pluck('parent_id')->filter()->unique())->get());
+        }
+
+        $notification = new \App\Notifications\TeacherMessageNotification(
+            $data['title'] ?? 'Mensagem do Professor',
+            $data['message'],
+            $data['type'] ?? 'teacher_notification',
+            $sender->name,
+        );
+        foreach ($recipients as $r) {
+            $r->notify($notification);
+        }
+
+        return response()->json(['status' => 'success', 'message' => 'Notificação enviada.', 'recipients' => $recipients->count()], 201);
+    }
+
     /** PATCH /api/v1/notifications/{id}/read */
     public function markRead(Request $request, string $id): JsonResponse
     {
