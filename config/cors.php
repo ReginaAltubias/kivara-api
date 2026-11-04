@@ -27,6 +27,7 @@ return [
             env('FRONTEND_URL', 'http://localhost:8080'),
             'http://localhost:8080',
             'http://127.0.0.1:8080',
+            'https://kivara-psi.vercel.app',
             'https://localhost',
             'capacitor://localhost',
         ])
